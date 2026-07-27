@@ -42,7 +42,7 @@ GROUP_MODE="unique"
 # apart — see dead-ends-and-other-learnings.md.
 
 ICON_STOP="✅"        # turn complete
-ICON_ATTENTION="🔐"   # permission prompt or question box
+ICON_ATTENTION="⏸️"   # permission prompt or question box (neutral: Claude is paused)
 ICON_WAITING="⏳"     # idle / timeout
 ICON_GENERIC="🔔"     # anything else
 
@@ -54,6 +54,20 @@ ICON_GENERIC="🔔"     # anything else
 LABEL_STOP="Done"
 LABEL_ATTENTION="Needs you"
 LABEL_WAITING="Waiting"
+
+# --- body text for attention events -----------------------------------------
+# The payload says "Claude needs your permission" even when Claude is only
+# asking a question, which reads as a permission request and is misleading.
+# This neutral wording is true either way. Set to "" to use the payload text.
+
+MESSAGE_ATTENTION="Waiting for your response in the terminal"
+
+# --- focus / do not disturb -------------------------------------------------
+# Focus modes suppress notifications silently, which is indistinguishable from
+# a broken hook. You opted into these alerts, so they bypass Focus by default.
+# Set to "0" to respect it.
+
+IGNORE_DND="1"
 
 # --- session colour glyphs --------------------------------------------------
 # Claude Code has exactly 8 colours. Six have an exact Unicode square; pink and

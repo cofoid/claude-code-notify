@@ -25,9 +25,12 @@ TERM_APP="Ghostty"
 CLICK_TIMEOUT="45"
 GROUP_MODE="unique"
 BODY_LENGTH="140"
+# Focus/Do Not Disturb silently suppresses notifications, which looks exactly
+# like a broken hook. You opted into these alerts, so they bypass it by default.
+IGNORE_DND="1"
 
 ICON_STOP="✅"
-ICON_ATTENTION="🔐"
+ICON_ATTENTION="⏸️"
 ICON_WAITING="⏳"
 ICON_GENERIC="🔔"
 
@@ -37,6 +40,12 @@ ICON_GENERIC="🔔"
 LABEL_STOP="Done"
 LABEL_ATTENTION="Needs you"
 LABEL_WAITING="Waiting"
+
+# Body text for attention events. Deliberately neutral: the payload says
+# "Claude needs your permission" even when Claude is only asking a question,
+# which reads as a permission request and is misleading. Set to "" to pass the
+# payload's own wording through instead.
+MESSAGE_ATTENTION="Waiting for your response in the terminal"
 
 COLOR_RED="🟥"
 COLOR_BLUE="🟦"
@@ -56,6 +65,7 @@ TERM_APP="${CLAUDE_NOTIFY_TERM_APP:-$TERM_APP}"
 CLICK_TIMEOUT="${CLAUDE_NOTIFY_TIMEOUT:-$CLICK_TIMEOUT}"
 GROUP_MODE="${CLAUDE_NOTIFY_GROUP_MODE:-$GROUP_MODE}"
 BODY_LENGTH="${CLAUDE_NOTIFY_BODY_LENGTH:-$BODY_LENGTH}"
+IGNORE_DND="${CLAUDE_NOTIFY_IGNORE_DND:-$IGNORE_DND}"
 ALERTER="${CLAUDE_NOTIFY_ALERTER:-$HOME/.local/bin/alerter}"
 SCPT="$(dirname "$0")/focus-ghostty.applescript"
 
@@ -151,7 +161,14 @@ case "$event" in
     # generic, and the transcript only gains the tool_use after the tool
     # completes — so at prompt time the newest entry is the PREVIOUS call.
     # Reading it names the wrong tool. See dead-ends-and-other-learnings.md.
-    msg=$(summarize "$msg")
+    #
+    # .message also says "Claude needs your permission" for a question box, so
+    # passing it through mislabels every question as a permission request.
+    if [ -n "$MESSAGE_ATTENTION" ] && [ "$ntype" = "permission_prompt" ]; then
+      msg="$MESSAGE_ATTENTION"
+    else
+      msg=$(summarize "$msg")
+    fi
     [ -n "$msg" ] || msg="Claude needs your attention"
     ;;
   *)
@@ -195,7 +212,7 @@ if [ -x "$ALERTER" ] && command -v python3 >/dev/null 2>&1; then
   # process group, which kills the click listener. fork + setsid puts it in its
   # own session so it outlives the hook.
   A="$ALERTER" T="$title" S="$subtitle" M="$msg" SND="$sound" \
-  G="$group" NAME="$session_name" CWD="$cwd" \
+  G="$group" NAME="$session_name" CWD="$cwd" DND="$IGNORE_DND" \
   SCPT="$SCPT" APP="$TERM_APP" TMO="$CLICK_TIMEOUT" python3 -c '
 import os, sys, subprocess
 if os.fork() > 0:
@@ -206,6 +223,8 @@ cmd = [e["A"], "--title", e["T"], "--subtitle", e["S"], "--message", e["M"],
        "--group", e["G"], "--timeout", e["TMO"]]
 if e.get("SND"):
     cmd += ["--sound", e["SND"]]
+if e.get("DND") == "1":
+    cmd += ["--ignore-dnd"]
 out = subprocess.run(cmd, capture_output=True, text=True).stdout
 if "CONTENTCLICKED" not in out:
     sys.exit(0)
