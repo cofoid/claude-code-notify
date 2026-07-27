@@ -138,6 +138,27 @@ Two guards worth copying:
 - Skip title matching when the session name is empty — `contains ""` is true for every surface and will focus an arbitrary tab.
 - Accept a working-directory fallback only on a **unique** match. Several tabs routinely sit in the same repo, and a non-unique match is a coin flip.
 
+### A banner has two clickable parts and they report differently
+
+`alerter` writes a token to stdout when the notification is resolved. Clicking
+the banner **body** emits `@CONTENTCLICKED` — but clicking the **"Show" button**
+emits `@ACTIONCLICKED`, and the obvious guard only tests for the first:
+
+```python
+if "CONTENTCLICKED" not in out:
+    sys.exit(0)
+```
+
+That leaves "Show" dead. It dismisses the banner and focuses nothing, which
+presents as click-through being broken in general rather than as one token going
+unhandled — especially since clicking the body still works, so the same feature
+looks intermittent depending on where the pointer happened to land.
+
+Test both tokens (`@TIMEOUT` and `@CLOSED` are the not-a-click cases). Verified
+by capturing alerter's stdout to a file and clicking "Show": `STDOUT=
+'@ACTIONCLICKED'`, with the focus call that followed returning `focused:title`
+once it was allowed to run.
+
 ## Timing
 
 `Stop` fires essentially instantly. `Notification` lags **1.5–6 seconds**, and the lag is variable rather than a fixed cost.
