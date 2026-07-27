@@ -4,13 +4,9 @@ Rich macOS notifications for [Claude Code](https://claude.com/claude-code). Tell
 
 Out of the box Claude Code makes no sound and posts nothing when a turn finishes or a permission prompt appears. If you run several sessions across terminal tabs, you either sit and watch or you come back late.
 
-<!-- Replace with a real screenshot before publishing. -->
+![Permission prompt notification](screenshots/permission.png)
 
-```
-🩵 🔐 acme-api
-   Refactor auth middleware · Permission needed
-   Claude needs your permission to use Write
-```
+![Task complete notification](screenshots/task-complete.png)
 
 - **Colour square** — the session's `/color`, so parallel sessions are distinguishable at a glance
 - **Icon** — 🔐 needs a response, ⏳ waiting, ✅ complete
