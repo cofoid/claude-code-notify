@@ -144,6 +144,62 @@ Two guards worth copying:
 
 That delay is in Claude Code's hook dispatch, not in delivery. The proof: fire a local terminal bell and a Notification Center banner from the same hook. They share no downstream machinery, and both arrive late together — so the delay is upstream of both. No change to the notification tooling will fix it. Don't spend time on it.
 
+## Devcontainers
+
+### launchd throttles any job to one spawn per ten seconds — `WatchPaths` included
+
+The obvious way to drain a spool file is a launchd agent with `WatchPaths` on it
+and a short `StartInterval` as a backstop. Measured end to end, a line appended
+to the spool took **9.4s, 10.3s and 10.4s** to post across three trials, with
+`StartInterval` set to 5.
+
+Neither trigger is broken. launchd refuses to respawn a job more often than
+every ten seconds, and that ceiling applies to `WatchPaths` and `StartInterval`
+alike — asking twice does not get you served sooner. Ten seconds is a long time
+to sit next to a terminal that is waiting on you.
+
+**Use instead:** stay resident. `KeepAlive` with a one-second poll inside the
+process is not throttled, measured at 0.06–1.44s, and the process is asleep
+between polls. It also retires a question you would otherwise have to answer:
+whether a write arriving through a Docker bind mount raises an FSEvent on the
+host at all. Polling never asks.
+
+### A container's session name does reach the host terminal title
+
+Whether click-to-tab could work for a container session was genuinely unclear —
+the session name lives in the container's `~/.claude/sessions/*.json`, and the
+Ghostty surface being matched is a host window several boundaries away.
+
+It works, and the reason is that Claude Code sets the title with an escape
+sequence, which is just bytes on the terminal stream and crosses `docker exec`
+untouched. Verified by listing every Ghostty surface title and intersecting it
+with both session directories: `B - Grain`, `B1a - Diff to prod` and
+`B2 - Investigate ProductID Fix` appeared as host tab titles while existing
+*only* in the container's session files. `focus <terminal>` on that surface then
+returned `focused:title` as it does for a host session.
+
+The caveat is the transport, not the container: this holds when Claude runs in a
+terminal tab. An editor's integrated terminal is not a Ghostty surface and
+cannot be focused this way.
+
+The working-directory fallback, though, is inert across the boundary — the
+payload's `cwd` is `/workspaces/...` and no host tab will ever report that. It
+fails closed rather than wrong, because the fallback only accepts a *unique*
+match and there are zero.
+
+### The spool is the mount, and the mount ignores the container's chown
+
+A devcontainer that bind-mounts the host's credential directory usually runs
+`chown -R node:node` over it in `postStartCommand`. That looks like it should
+leave the host unable to read its own files. It doesn't: Docker Desktop's bind
+mounts don't propagate ownership back, and the host files stay owned by the host
+user — confirmed by `ls -la` on a credential directory that had been chowned
+inside a container many times.
+
+Worth checking on your own setup before relying on it, because if ownership
+*did* propagate, the host watcher would lose its own spool on the next container
+start.
+
 ## Environment gotchas
 
 **Guard for macOS.** A `settings.json` at `~/.claude/` is read by Linux devcontainers too. An unguarded `osascript` call errors on every single turn in a container. `[ "$(uname)" = "Darwin" ] || exit 0`.

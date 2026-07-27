@@ -52,6 +52,47 @@ macOS will prompt twice. Approve both:
 
 Then make banners stick around: **System Settings → Notifications → alerter → Alert style → Alerts**. Otherwise they auto-hide in a few seconds, which defeats the point if you stepped away.
 
+## Devcontainers
+
+A session running inside a devcontainer has no Notification Center and no route
+to the host's, so it posts nothing. What it does have is a bind-mounted
+`~/.claude` — a real host directory — and that mount is the delivery channel.
+No network, no SSH, nothing installed into the image.
+
+`notify.sh` runs in the container and does all the work of deciding what the
+notification should say, because the transcript and session files it reads are
+container paths that mean nothing on the host. Instead of delivering, it
+appends the finished notification to `~/.claude/notify-spool.jsonl` as one
+line. On the host, a launchd agent drains that file and posts each line through
+the same `alert.sh` a host session uses.
+
+Give the installer the **host** path of the directory the container mounts as
+`~/.claude`:
+
+```sh
+./install.sh --container ~/.ncd-devcontainer/claude
+./install.sh --watch     ~/.ncd-devcontainer/claude ~/other-fork/claude
+```
+
+`--container` prints a `hooks` block to paste into that directory's
+`settings.json` — which is the container's `~/.claude/settings.json`, so
+`$HOME` resolves inside the container. `--watch` takes every container
+directory at once; one agent drains them all. Several devcontainers sharing one
+credential directory (a PHI and a web profile, say) need it named only once.
+
+The container needs `jq` and `python3`. Both ship in the standard
+`mcr.microsoft.com/devcontainers` images; if `jq` is missing the notification
+still posts but arrives empty, and `notify.sh` says so on stderr rather than
+exiting quietly.
+
+Click-to-tab works for container sessions too, as long as Claude is running in
+a terminal tab rather than an editor pane: Claude Code's title escape sequence
+crosses the container boundary unchanged, so the host tab is titled with the
+container session's name and the title match finds it. The working-directory
+fallback can't help here — the payload's `cwd` is a `/workspaces/...` path no
+host tab will ever match — but it fails closed, falling back to activating the
+app rather than focusing an arbitrary tab.
+
 ## Configuration
 
 Everything lives in `~/.claude/hooks/notify.conf`, created on install from [`notify.conf.example`](notify.conf.example). Edits take effect on the next notification — no restart, since `settings.json` only holds the path and the script is re-read each time.
@@ -115,6 +156,10 @@ If you're extending this or writing your own Claude Code notification hook, [dea
 ```sh
 ./install.sh --uninstall
 ```
+
+This also unloads the watcher agent. Container installs are left alone — delete
+`hooks/` and `notify-spool.jsonl*` from the credential directory yourself, and
+remove the `hooks` block from its `settings.json`.
 
 Then remove the `Stop` and `Notification` entries from `~/.claude/settings.json`.
 

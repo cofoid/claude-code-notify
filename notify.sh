@@ -10,24 +10,24 @@
 # An optional first argument overrides the sound for this invocation, kept for
 # backwards compatibility with installs that pass it from settings.json.
 
-# macOS-only. Exit quietly elsewhere: this same settings.json is read by Linux
-# devcontainers that mount the repo, and an unguarded osascript call would error
-# on every turn there.
-[ "$(uname)" = "Darwin" ] || exit 0
+# Runs on macOS and inside Linux devcontainers. Everything up to the delivery
+# section is platform-neutral and runs in both: what a notification should SAY
+# can only be worked out where the transcript and session files are, which for
+# a container session is the container. Delivery is where the platforms split —
+# see the guard down there. An unguarded osascript call on Linux would error on
+# every single turn, so nothing above may reach for one.
 
 payload=$(cat)
 
 # --- defaults ---------------------------------------------------------------
 
+# Note: the settings that belong to delivery rather than to wording — TERM_APP,
+# CLICK_TIMEOUT, IGNORE_DND, ALERTER — live in alert.sh, which sources the same
+# notify.conf. They are meaningless in a container, where nothing is delivered.
 SOUND_STOP="Hero"
 SOUND_NOTIFICATION="Funk"
-TERM_APP="Ghostty"
-CLICK_TIMEOUT="45"
 GROUP_MODE="unique"
 BODY_LENGTH="140"
-# Focus/Do Not Disturb silently suppresses notifications, which looks exactly
-# like a broken hook. You opted into these alerts, so they bypass it by default.
-IGNORE_DND="1"
 
 # Recover what is actually being asked from the transcript. Set to "0" to
 # always show neutral wording instead.
@@ -65,15 +65,12 @@ CONF="${CLAUDE_NOTIFY_CONF:-$HOME/.claude/hooks/notify.conf}"
 [ -f "$CONF" ] && . "$CONF"
 
 # Environment overrides win over the config file.
-TERM_APP="${CLAUDE_NOTIFY_TERM_APP:-$TERM_APP}"
-CLICK_TIMEOUT="${CLAUDE_NOTIFY_TIMEOUT:-$CLICK_TIMEOUT}"
 GROUP_MODE="${CLAUDE_NOTIFY_GROUP_MODE:-$GROUP_MODE}"
 BODY_LENGTH="${CLAUDE_NOTIFY_BODY_LENGTH:-$BODY_LENGTH}"
-IGNORE_DND="${CLAUDE_NOTIFY_IGNORE_DND:-$IGNORE_DND}"
 DESCRIBE_REQUEST="${CLAUDE_NOTIFY_DESCRIBE_REQUEST:-$DESCRIBE_REQUEST}"
-ALERTER="${CLAUDE_NOTIFY_ALERTER:-$HOME/.local/bin/alerter}"
-SCPT="$(dirname "$0")/focus-ghostty.applescript"
 DESCRIBER="$(dirname "$0")/describe-request.py"
+ALERT="$(dirname "$0")/alert.sh"
+SPOOL="${CLAUDE_NOTIFY_SPOOL:-$HOME/.claude/notify-spool.jsonl}"
 
 # Character- rather than byte-oriented truncation, so clipping can't slice a
 # multi-byte glyph in half and produce mojibake in the banner.
@@ -210,59 +207,31 @@ fi
 
 # --- delivery ---------------------------------------------------------------
 #
-# alerter (UNUserNotificationCenter, notarized) is the preferred path: the only
-# one that delivers on current macOS AND reports clicks. It BLOCKS while waiting
-# for a click — that is how it emits @CONTENTCLICKED — so it must run detached
-# or it stalls the hook for the whole timeout.
+# Not macOS: this is a devcontainer, which has no Notification Center to post
+# to and no route to the host's. But the container's ~/.claude IS a host
+# directory — the bind mount that carries the credentials — so the mount is the
+# delivery channel. No network, no SSH, no daemon in the container.
 #
-# python3 is required for the detach (fork + setsid). Both must be present, or
-# we fall through to osascript: taking this branch without python3 would exit 0
-# and deliver nothing at all.
+# The notification is already finished by this point, which is deliberate: the
+# host watcher never sees a transcript path or a session file, both of which
+# name paths that only exist inside the container.
 #
-# Do NOT pass --sender to impersonate the terminal's bundle id: alerter hangs.
-if [ -x "$ALERTER" ] && command -v python3 >/dev/null 2>&1; then
-  # A plain background subshell is NOT enough — Claude Code reaps the hook's
-  # process group, which kills the click listener. fork + setsid puts it in its
-  # own session so it outlives the hook.
-  A="$ALERTER" T="$title" S="$subtitle" M="$msg" SND="$sound" \
-  G="$group" NAME="$session_name" CWD="$cwd" DND="$IGNORE_DND" \
-  SCPT="$SCPT" APP="$TERM_APP" TMO="$CLICK_TIMEOUT" python3 -c '
-import os, sys, subprocess
-if os.fork() > 0:
-    sys.exit(0)          # hook returns immediately
-os.setsid()              # escape the process group Claude Code reaps
-e = os.environ
-cmd = [e["A"], "--title", e["T"], "--subtitle", e["S"], "--message", e["M"],
-       "--group", e["G"], "--timeout", e["TMO"]]
-if e.get("SND"):
-    cmd += ["--sound", e["SND"]]
-if e.get("DND") == "1":
-    cmd += ["--ignore-dnd"]
-out = subprocess.run(cmd, capture_output=True, text=True).stdout
-if "CONTENTCLICKED" not in out:
-    sys.exit(0)
-# Ghostty exposes an AppleScript dictionary, so the click can land on the exact
-# tab. Any other terminal falls back to app-level activation.
-focused = False
-if e["APP"] == "Ghostty" and os.path.exists(e["SCPT"]):
-    r = subprocess.run(["osascript", e["SCPT"], e.get("NAME", ""), e.get("CWD", "")],
-                       capture_output=True, text=True)
-    focused = "focused:" in r.stdout
-if not focused:
-    subprocess.run(["open", "-a", e["APP"]])
-' >/dev/null 2>&1
+# ONE \n-terminated line, appended. Concurrent container sessions share this
+# file, and a single small append is what keeps their writes from interleaving.
+if [ "$(uname)" != "Darwin" ]; then
+  if command -v jq >/dev/null 2>&1; then
+    jq -cn \
+      --arg title "$title" --arg subtitle "$subtitle" --arg message "$msg" \
+      --arg sound "$sound" --arg group "$group" \
+      --arg name "$session_name" --arg cwd "$cwd" \
+      '{$title, $subtitle, $message, $sound, $group, $name, $cwd}' >> "$SPOOL"
+  else
+    # Say so rather than exiting 0 into silence: a container without jq has
+    # already produced an empty-field notification, and no delivery at all is
+    # the kind of failure that reads as "the hook never fired".
+    echo "claude-code-notify: jq not found in container — notification dropped" >&2
+  fi
   exit 0
 fi
 
-# Fallback: no alerter (or no python3). Delivers reliably, but posts under
-# Script Editor, so clicking opens Script Editor rather than your terminal.
-# Pass strings as argv rather than interpolating into the AppleScript source —
-# a quote or backslash in .message would otherwise break it or inject.
-osascript - "$title" "$subtitle" "$msg" "${sound:-Funk}" <<'APPLESCRIPT'
-on run argv
-  display notification (item 3 of argv) ¬
-    with title (item 1 of argv) ¬
-    subtitle (item 2 of argv) ¬
-    sound name (item 4 of argv)
-end run
-APPLESCRIPT
+exec "$ALERT" "$title" "$subtitle" "$msg" "$sound" "$group" "$session_name" "$cwd"
