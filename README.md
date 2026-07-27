@@ -9,7 +9,7 @@ Out of the box Claude Code makes no sound and posts nothing when a turn finishes
 ![Task complete notification](screenshots/task-complete.png)
 
 - **Colour square** — the session's `/color`, so parallel sessions are distinguishable at a glance
-- **Icon** — 🔐 needs a response, ⏳ waiting, ✅ complete
+- **Icon** — ⏸️ needs a response, ⏳ waiting, ✅ complete
 - **Title** — the project directory
 - **Subtitle** — the session's `/rename` name, plus what kind of attention it wants
 - **Body** — what is actually being asked (`Write: /path/to/file`), or a summary of what just finished
@@ -52,16 +52,21 @@ Everything lives in `~/.claude/hooks/notify.conf`, created on install from [`not
 SOUND_STOP="Hero"           # turn complete
 SOUND_NOTIFICATION="Funk"   # needs your attention
 TERM_APP="Ghostty"          # what a click focuses
-GROUP_MODE="session"        # or "unique" — see below
+GROUP_MODE="unique"         # or "session" — see below
+DESCRIBE_REQUEST="1"        # name the pending tool in the body
+IGNORE_DND="1"              # bypass Focus modes
 COLOR_CYAN="🩵"             # per-colour glyphs
 ICON_STOP="✅"              # per-event icons
+LABEL_STOP="Done"           # per-event labels
 ```
 
 Sounds are any basename from `/System/Library/Sounds` or `~/Library/Sounds` (`ls` it to browse); set to `""` for silent.
 
-**`GROUP_MODE`** is worth a thought. `session` shows one banner per session, so a new alert replaces the previous one — tidy, but if you missed the first, the replacement can update in place without re-alerting. `unique` gives every alert its own banner: nothing is silently replaced, at the cost of a pile-up if you're away.
+**`GROUP_MODE`** is worth a thought. `unique` (the default) gives every alert its own banner, so nothing is silently replaced — at the cost of a pile-up if you're away. `session` shows one banner per session instead, which is tidier, but when the earlier banner is still on screen the replacement updates it *in place with no sound*, and you can miss a notification entirely.
 
-Re-running `install.sh` never overwrites an existing config, so updates won't discard your choices. Environment variables (`CLAUDE_NOTIFY_TERM_APP`, `CLAUDE_NOTIFY_TIMEOUT`, `CLAUDE_NOTIFY_GROUP_MODE`, `CLAUDE_NOTIFY_BODY_LENGTH`, `CLAUDE_NOTIFY_ALERTER`, `CLAUDE_NOTIFY_CONF`) override the file for one-off cases.
+**Keep labels short.** The subtitle renders as `<session name> · <label>` and macOS truncates it around 40 characters.
+
+Re-running `install.sh` never overwrites an existing config, so updates won't discard your choices. Environment variables (`CLAUDE_NOTIFY_TERM_APP`, `CLAUDE_NOTIFY_TIMEOUT`, `CLAUDE_NOTIFY_GROUP_MODE`, `CLAUDE_NOTIFY_BODY_LENGTH`, `CLAUDE_NOTIFY_IGNORE_DND`, `CLAUDE_NOTIFY_DESCRIBE_REQUEST`, `CLAUDE_NOTIFY_ALERTER`, `CLAUDE_NOTIFY_CONF`) override the file for one-off cases.
 
 ## How it works
 
@@ -73,6 +78,8 @@ Claude Code pipes a JSON payload to hooks on stdin. The useful fields differ per
 | `notification_type` | — | `permission_prompt`, etc. — the real classifier |
 | `last_assistant_message` | tail of Claude's reply | `null` |
 | `cwd`, `session_id`, `transcript_path` | ✅ | ✅ |
+
+**What is actually being asked** comes from the transcript, not the payload: the newest `tool_use` whose `tool_result` is still missing. The result check is what makes it safe — a completed call is not what you're being asked about, so naming it would be confidently wrong. Question boxes reach the transcript too late, so those fall back to neutral wording rather than guessing.
 
 Two things you'd expect in the payload aren't there:
 
