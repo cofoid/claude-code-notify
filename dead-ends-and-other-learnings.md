@@ -88,15 +88,20 @@ Log the raw payload to a file for a few real invocations before assuming any of 
 
 Note also that `AskUserQuestion` *does* fire the `Notification` hook, which isn't obvious — it's easy to conclude the hook is broken when testing with a picker, because early docs suggest only permission prompts and idle timeouts trigger it.
 
-### You cannot name the pending tool — the transcript lags the prompt
+### Naming the pending tool works — but only with a `tool_result` check
 
-The obvious workaround for the generic `message` is to read the last `tool_use` block from the transcript and show *that*: "Write: /path/to/file", or the text of the question. It parses cleanly and looks right in testing.
+The obvious workaround for the generic `message` is to read the last `tool_use` from the transcript and show *that*: "Write: /path/to/file". Done naively it is wrong often enough to be dangerous — the newest `tool_use` is frequently the *previous*, already-completed call, so the banner confidently names a tool that isn't the one waiting on you.
 
-It is wrong. **Claude Code writes a `tool_use` to the transcript only after the tool completes**, not when the permission prompt appears. At notification time the newest entry is the *previous* call, so the banner confidently names a tool that isn't the one waiting on you.
+Observed: a question box produced `Edit: /Users/…/notify.conf`, the edit made seven seconds earlier.
 
-Observed directly: a question box produced `Edit: /Users/…/notify.conf` (the edit made just before it), and a permission prompt produced `Bash: Check whether the answered question now appears in transcript`. Both were the preceding tool call. This isn't a race that a short sleep fixes — the data doesn't exist yet, and the `Notification` hook already fires seconds late.
+**The discriminator is `tool_result`.** Every completed call has one recorded against its `tool_use` id; a call blocked waiting on you does not. So take the newest `tool_use` and describe it *only if its id has no matching `tool_result`*. Otherwise print nothing.
 
-A wrong tool name is worse than a generic message, because it's believable. Show the generic text.
+That single check turns an unreliable feature into a correct one:
+
+- **Tool permission prompts** — the `tool_use` is written and unresolved when the prompt appears, so the banner names the actual pending tool and its target. Verified: a blocked `Write` produced `Write: /Users/…/claude-notify-describer-test.txt`.
+- **Question boxes** — `AskUserQuestion` does not reach the transcript before the hook fires, so the newest entry is a resolved call, the check suppresses it, and the banner falls back to neutral wording. Verified.
+
+The asymmetry is a genuine race, not a fixable lag — a sleep won't help, because the `Notification` hook already fires seconds late and the data still isn't there. Design for it: show detail when you can prove it's pending, neutral text when you can't. A wrong tool name is worse than no tool name, because it's specific, plausible, and believed.
 
 ### The subtitle truncates around 40 characters
 

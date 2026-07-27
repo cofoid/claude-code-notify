@@ -20,7 +20,7 @@ grn()  { printf '\033[32m%s\033[0m\n' "$1"; }
 ylw()  { printf '\033[33m%s\033[0m\n' "$1"; }
 
 if [ "$1" = "--uninstall" ]; then
-  rm -f "$HOOK_DIR/notify.sh" "$HOOK_DIR/focus-ghostty.applescript"
+  rm -f "$HOOK_DIR/notify.sh" "$HOOK_DIR/focus-ghostty.applescript" "$HOOK_DIR/describe-request.py"
   grn "Removed hook files from $HOOK_DIR"
   ylw "Remove the Stop and Notification entries from ~/.claude/settings.json by hand."
   ylw "The alerter binary at $BIN_DIR/alerter was left in place."
@@ -84,7 +84,8 @@ fi
 mkdir -p "$HOOK_DIR"
 cp "$SRC_DIR/notify.sh" "$HOOK_DIR/notify.sh"
 cp "$SRC_DIR/focus-ghostty.applescript" "$HOOK_DIR/focus-ghostty.applescript"
-chmod +x "$HOOK_DIR/notify.sh"
+cp "$SRC_DIR/describe-request.py" "$HOOK_DIR/describe-request.py"
+chmod +x "$HOOK_DIR/notify.sh" "$HOOK_DIR/describe-request.py"
 grn "Installed hook files to $HOOK_DIR"
 
 # Never overwrite an existing config — that would silently discard the user's

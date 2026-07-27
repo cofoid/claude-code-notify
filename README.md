@@ -12,7 +12,7 @@ Out of the box Claude Code makes no sound and posts nothing when a turn finishes
 - **Icon** — 🔐 needs a response, ⏳ waiting, ✅ complete
 - **Title** — the project directory
 - **Subtitle** — the session's `/rename` name, plus what kind of attention it wants
-- **Body** — the actual permission text, or a summary of what just finished
+- **Body** — what is actually being asked (`Write: /path/to/file`), or a summary of what just finished
 - **Click** — focuses the exact terminal tab that session is running in
 
 ## Requirements

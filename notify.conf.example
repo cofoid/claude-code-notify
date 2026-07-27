@@ -62,6 +62,15 @@ LABEL_WAITING="Waiting"
 
 MESSAGE_ATTENTION="Waiting for your response in the terminal"
 
+# --- naming the pending request ---------------------------------------------
+# Recovers what is actually being asked from the transcript, e.g.
+# "Write: /path/to/file". Only reports a tool whose result is still missing, so
+# it can never name an already-completed call. When it cannot tell — question
+# boxes reach the transcript too late — it stays quiet and MESSAGE_ATTENTION
+# above is used instead. Set to "0" to always show the neutral wording.
+
+DESCRIBE_REQUEST="1"
+
 # --- focus / do not disturb -------------------------------------------------
 # Focus modes suppress notifications silently, which is indistinguishable from
 # a broken hook. You opted into these alerts, so they bypass Focus by default.

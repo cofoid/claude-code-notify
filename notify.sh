@@ -29,6 +29,10 @@ BODY_LENGTH="140"
 # like a broken hook. You opted into these alerts, so they bypass it by default.
 IGNORE_DND="1"
 
+# Recover what is actually being asked from the transcript. Set to "0" to
+# always show neutral wording instead.
+DESCRIBE_REQUEST="1"
+
 ICON_STOP="✅"
 ICON_ATTENTION="⏸️"
 ICON_WAITING="⏳"
@@ -66,8 +70,10 @@ CLICK_TIMEOUT="${CLAUDE_NOTIFY_TIMEOUT:-$CLICK_TIMEOUT}"
 GROUP_MODE="${CLAUDE_NOTIFY_GROUP_MODE:-$GROUP_MODE}"
 BODY_LENGTH="${CLAUDE_NOTIFY_BODY_LENGTH:-$BODY_LENGTH}"
 IGNORE_DND="${CLAUDE_NOTIFY_IGNORE_DND:-$IGNORE_DND}"
+DESCRIBE_REQUEST="${CLAUDE_NOTIFY_DESCRIBE_REQUEST:-$DESCRIBE_REQUEST}"
 ALERTER="${CLAUDE_NOTIFY_ALERTER:-$HOME/.local/bin/alerter}"
 SCPT="$(dirname "$0")/focus-ghostty.applescript"
+DESCRIBER="$(dirname "$0")/describe-request.py"
 
 # Character- rather than byte-oriented truncation, so clipping can't slice a
 # multi-byte glyph in half and produce mojibake in the banner.
@@ -157,14 +163,21 @@ case "$event" in
       "")                icon="$ICON_ATTENTION"; subtitle="$LABEL_ATTENTION" ;;
       *)                 icon="$ICON_ATTENTION"; subtitle="$ntype" ;;
     esac
-    # There is no way to say WHICH tool or question is pending. .message is
-    # generic, and the transcript only gains the tool_use after the tool
-    # completes — so at prompt time the newest entry is the PREVIOUS call.
-    # Reading it names the wrong tool. See dead-ends-and-other-learnings.md.
-    #
-    # .message also says "Claude needs your permission" for a question box, so
-    # passing it through mislabels every question as a permission request.
-    if [ -n "$MESSAGE_ATTENTION" ] && [ "$ntype" = "permission_prompt" ]; then
+    # .message is generic and never names the tool, so try to recover the actual
+    # pending request from the transcript. The describer only reports a tool
+    # whose tool_result is still missing — a completed call is not what you are
+    # being asked about, and naming it would be confidently wrong. When it can't
+    # tell, it prints nothing and we fall back to neutral wording.
+    detail=""
+    if [ "$DESCRIBE_REQUEST" != "0" ] && [ -n "$tpath" ] && [ -f "$tpath" ] \
+       && [ -f "$DESCRIBER" ] && command -v python3 >/dev/null 2>&1; then
+      detail=$(python3 "$DESCRIBER" "$tpath" 2>/dev/null)
+    fi
+    if [ -n "$detail" ]; then
+      msg=$(summarize "$detail")
+    elif [ -n "$MESSAGE_ATTENTION" ] && [ "$ntype" = "permission_prompt" ]; then
+      # .message says "Claude needs your permission" even for a question box,
+      # so passing it through mislabels every question as a permission request.
       msg="$MESSAGE_ATTENTION"
     else
       msg=$(summarize "$msg")
