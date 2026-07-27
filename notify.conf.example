@@ -26,13 +26,15 @@ TERM_APP="Ghostty"
 CLICK_TIMEOUT="45"
 
 # --- grouping ---------------------------------------------------------------
+# "unique"   (default) every alert is its own banner. Nothing is silently
+#            replaced, at the cost of a pile-up if you're away for a while.
 # "session"  one banner per session — a new alert REPLACES the previous one.
-#            Keeps things tidy, but if you missed the first, the replacement
-#            can update silently rather than re-alerting.
-# "unique"   every alert is its own banner. Nothing is silently replaced, at
-#            the cost of a pile-up if you're away for a while.
+#            Tidier, but if the earlier banner is still on screen the
+#            replacement updates it in place WITHOUT re-alerting, so you can
+#            miss a notification entirely. This was observed in practice, which
+#            is why it is no longer the default.
 
-GROUP_MODE="session"
+GROUP_MODE="unique"
 
 # --- event icons ------------------------------------------------------------
 # Note: Claude Code reports a question box and a tool-permission prompt
@@ -43,6 +45,15 @@ ICON_STOP="✅"        # turn complete
 ICON_ATTENTION="🔐"   # permission prompt or question box
 ICON_WAITING="⏳"     # idle / timeout
 ICON_GENERIC="🔔"     # anything else
+
+# --- event labels -----------------------------------------------------------
+# The subtitle renders as "<session name> · <label>" and macOS truncates it
+# around 40 characters. Since the icon already carries the event type, keep
+# these short or a long session name will push them off the end.
+
+LABEL_STOP="Done"
+LABEL_ATTENTION="Needs you"
+LABEL_WAITING="Waiting"
 
 # --- session colour glyphs --------------------------------------------------
 # Claude Code has exactly 8 colours. Six have an exact Unicode square; pink and

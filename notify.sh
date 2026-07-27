@@ -23,13 +23,20 @@ SOUND_STOP="Hero"
 SOUND_NOTIFICATION="Funk"
 TERM_APP="Ghostty"
 CLICK_TIMEOUT="45"
-GROUP_MODE="session"
+GROUP_MODE="unique"
 BODY_LENGTH="140"
 
 ICON_STOP="✅"
 ICON_ATTENTION="🔐"
 ICON_WAITING="⏳"
 ICON_GENERIC="🔔"
+
+# Kept short on purpose: the subtitle is "<session name> · <label>" and macOS
+# truncates it around 40 characters. The icon already carries the event type,
+# so the words only need to disambiguate.
+LABEL_STOP="Done"
+LABEL_ATTENTION="Needs you"
+LABEL_WAITING="Waiting"
 
 COLOR_RED="🟥"
 COLOR_BLUE="🟦"
@@ -121,7 +128,7 @@ label="${session_name:-$short_sid}"
 case "$event" in
   Stop)
     icon="$ICON_STOP"
-    subtitle="Task complete"
+    subtitle="$LABEL_STOP"
     sound="$SOUND_STOP"
     # .message is always null on Stop; the useful content is the tail of what
     # Claude just said, which tells you what finished without switching windows.
@@ -135,11 +142,15 @@ case "$event" in
     # permission prompt both report "permission_prompt" with identical text —
     # there is no field that distinguishes them, so one label covers both.
     case "$ntype" in
-      permission_prompt) icon="$ICON_ATTENTION"; subtitle="Awaiting your response" ;;
-      idle*|*timeout*)   icon="$ICON_WAITING";   subtitle="Waiting on you" ;;
-      "")                icon="$ICON_ATTENTION"; subtitle="Needs your input" ;;
+      permission_prompt) icon="$ICON_ATTENTION"; subtitle="$LABEL_ATTENTION" ;;
+      idle*|*timeout*)   icon="$ICON_WAITING";   subtitle="$LABEL_WAITING" ;;
+      "")                icon="$ICON_ATTENTION"; subtitle="$LABEL_ATTENTION" ;;
       *)                 icon="$ICON_ATTENTION"; subtitle="$ntype" ;;
     esac
+    # There is no way to say WHICH tool or question is pending. .message is
+    # generic, and the transcript only gains the tool_use after the tool
+    # completes — so at prompt time the newest entry is the PREVIOUS call.
+    # Reading it names the wrong tool. See dead-ends-and-other-learnings.md.
     msg=$(summarize "$msg")
     [ -n "$msg" ] || msg="Claude needs your attention"
     ;;
