@@ -7,8 +7,8 @@ Out of the box Claude Code makes no sound and posts nothing when a turn finishes
 <!-- Replace with a real screenshot before publishing. -->
 
 ```
-🩵 🔐 consulting-os
-   Claude Audible Alerts · Permission needed
+🩵 🔐 acme-api
+   Refactor auth middleware · Permission needed
    Claude needs your permission to use Write
 ```
 
@@ -30,7 +30,7 @@ Out of the box Claude Code makes no sound and posts nothing when a turn finishes
 ## Install
 
 ```sh
-git clone https://github.com/YOUR_USERNAME/claude-code-notify.git
+git clone https://github.com/cofoid/claude-code-notify.git
 cd claude-code-notify
 ./install.sh
 ```
@@ -92,17 +92,9 @@ Click-to-tab uses Ghostty's AppleScript dictionary (`focus <terminal>`), matchin
 
 **Truncation is character-safe but not grapheme-safe.** A 140-character clip can split an emoji ZWJ sequence. Cosmetic, rare.
 
-## Dead ends (already tested — don't repeat these)
+## Building on this
 
-**`terminal-notifier` does not work on current macOS.** The Homebrew formula is 2.0.0 from 2017, built on `NSUserNotification` — deprecated in 10.14, no longer delivered. It exits 0, never registers with Notification Center, delivers nothing, and never appears in System Settings. No configuration fixes it; the API is gone. `alerter` is the maintained replacement on `UNUserNotificationCenter`.
-
-**`afplay` in a hook is the wrong tool.** It blocks on audio-device open plus the full sound duration (~2.4s for a 2.16s file), delaying anything sequenced after it. Backgrounding it is worse — Claude Code reaps the hook's process group and the sound is cut off entirely, so you hear nothing. Let the notification system play the sound: one process, ~0.07s.
-
-**Hooks have no controlling terminal.** `> /dev/tty` fails with "device not configured", and the usual `|| printf '\a'` fallback writes to stdout, which Claude Code captures and swallows. To reach the terminal you must resolve the pty explicitly via `ps -o tty= -p $PPID`.
-
-**Backgrounding the click listener isn't enough.** Claude Code reaps the hook's process group. The listener needs `fork()` + `setsid()` to survive in its own session.
-
-**Never pass `--sender` to alerter.** Impersonating your terminal's bundle id makes it hang.
+If you're extending this or writing your own Claude Code notification hook, [dead-ends-and-other-learnings.md](dead-ends-and-other-learnings.md) documents the approaches that don't work on current macOS and why — including several that fail *silently*, exiting 0 while delivering nothing.
 
 ## Uninstall
 
