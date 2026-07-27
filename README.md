@@ -4,7 +4,15 @@ Rich macOS notifications for [Claude Code](https://claude.com/claude-code). Tell
 
 Out of the box Claude Code makes no sound and posts nothing when a turn finishes or a permission prompt appears. If you run several sessions across terminal tabs, you either sit and watch or you come back late.
 
-![Permission prompt notification](screenshots/permission.png)
+**A tool is waiting on approval** — the body names the exact call and its target:
+
+![Permission prompt notification naming the pending Write and its file path](screenshots/permission.png)
+
+**Claude is asking you a question** — no tool to name, so the wording stays neutral rather than guessing:
+
+![Question box notification reading "Waiting for your response in the terminal"](screenshots/questionbox.png)
+
+**The turn finished** — the body summarises what Claude last said:
 
 ![Task complete notification](screenshots/task-complete.png)
 
