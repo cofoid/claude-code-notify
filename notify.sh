@@ -2,23 +2,53 @@
 # claude-code-notify — rich macOS notifications for Claude Code.
 #
 # Wired to the Stop and Notification hooks in ~/.claude/settings.json.
-# Reads the hook payload as JSON on stdin; $1 is the sound name.
+# Reads the hook payload as JSON on stdin.
 #
-# Configuration (environment variables, set in settings.json if you want):
-#   CLAUDE_NOTIFY_TERM_APP   Terminal app to focus on click.  Default: Ghostty
-#   CLAUDE_NOTIFY_TIMEOUT    Seconds to listen for a click.   Default: 45
-#   CLAUDE_NOTIFY_ALERTER    Path to the alerter binary.      Default: ~/.local/bin/alerter
+# Configuration: ~/.claude/hooks/notify.conf (see notify.conf.example).
+# Precedence: defaults < config file < CLAUDE_NOTIFY_* environment variables.
+#
+# An optional first argument overrides the sound for this invocation, kept for
+# backwards compatibility with installs that pass it from settings.json.
 
 # macOS-only. Exit quietly elsewhere: this same settings.json is read by Linux
-# devcontainers that mount the repo, and an unguarded osascript call errors on
-# every turn there.
+# devcontainers that mount the repo, and an unguarded osascript call would error
+# on every turn there.
 [ "$(uname)" = "Darwin" ] || exit 0
 
 payload=$(cat)
-sound="${1:-Funk}"
 
-TERM_APP="${CLAUDE_NOTIFY_TERM_APP:-Ghostty}"
-CLICK_TIMEOUT="${CLAUDE_NOTIFY_TIMEOUT:-45}"
+# --- defaults ---------------------------------------------------------------
+
+SOUND_STOP="Hero"
+SOUND_NOTIFICATION="Funk"
+TERM_APP="Ghostty"
+CLICK_TIMEOUT="45"
+GROUP_MODE="session"
+BODY_LENGTH="140"
+
+ICON_STOP="✅"
+ICON_ATTENTION="🔐"
+ICON_WAITING="⏳"
+ICON_GENERIC="🔔"
+
+COLOR_RED="🟥"
+COLOR_BLUE="🟦"
+COLOR_GREEN="🟩"
+COLOR_YELLOW="🟨"
+COLOR_PURPLE="🟪"
+COLOR_ORANGE="🟧"
+COLOR_PINK="🩷"
+COLOR_CYAN="🩵"
+
+CONF="${CLAUDE_NOTIFY_CONF:-$HOME/.claude/hooks/notify.conf}"
+# shellcheck source=/dev/null
+[ -f "$CONF" ] && . "$CONF"
+
+# Environment overrides win over the config file.
+TERM_APP="${CLAUDE_NOTIFY_TERM_APP:-$TERM_APP}"
+CLICK_TIMEOUT="${CLAUDE_NOTIFY_TIMEOUT:-$CLICK_TIMEOUT}"
+GROUP_MODE="${CLAUDE_NOTIFY_GROUP_MODE:-$GROUP_MODE}"
+BODY_LENGTH="${CLAUDE_NOTIFY_BODY_LENGTH:-$BODY_LENGTH}"
 ALERTER="${CLAUDE_NOTIFY_ALERTER:-$HOME/.local/bin/alerter}"
 SCPT="$(dirname "$0")/focus-ghostty.applescript"
 
@@ -27,8 +57,8 @@ SCPT="$(dirname "$0")/focus-ghostty.applescript"
 LC_ALL="${LC_ALL:-en_US.UTF-8}"
 export LC_ALL
 
-# jq is required for payload parsing. Without it every field comes back empty and
-# the notification degrades to a generic alert rather than failing outright.
+# jq is required for payload parsing. Without it every field comes back empty
+# and the notification degrades to a generic alert rather than failing outright.
 field() { printf '%s' "$payload" | jq -r "$1 // empty" 2>/dev/null; }
 
 # Collapse to one line and clip — notification bodies are truncated by the OS
@@ -37,7 +67,7 @@ summarize() {
   printf '%s' "$1" \
     | tr '\n' ' ' \
     | sed -e 's/`//g' -e 's/\*\*//g' -e 's/  */ /g' -e 's/^ *//' \
-    | cut -c1-140
+    | cut -c"1-$BODY_LENGTH"
 }
 
 event=$(field '.hook_event_name')
@@ -60,20 +90,17 @@ if [ -n "$tpath" ] && [ -f "$tpath" ]; then
     | sed -e 's/.*:"//' -e 's/"$//')
 fi
 
-# Claude Code offers exactly 8 colours: red, blue, green, yellow, purple,
-# orange, pink, cyan. "gray"/"grey"/"default"/"none"/"reset" are reset aliases,
-# not colours, so they correctly yield no glyph. Six map to an exact square;
-# pink and cyan have no square in Unicode and use the matching heart — a single
-# glyph beats a two-glyph blend, since the title already carries an event icon.
+# Claude Code offers exactly 8 colours. "gray"/"grey"/"default"/"none"/"reset"
+# are reset aliases, not colours, so they correctly yield no glyph.
 case "$agent_color" in
-  red)    square="🟥" ;;
-  blue)   square="🟦" ;;
-  green)  square="🟩" ;;
-  yellow) square="🟨" ;;
-  purple) square="🟪" ;;
-  orange) square="🟧" ;;
-  pink)   square="🩷" ;;
-  cyan)   square="🩵" ;;
+  red)    square="$COLOR_RED" ;;
+  blue)   square="$COLOR_BLUE" ;;
+  green)  square="$COLOR_GREEN" ;;
+  yellow) square="$COLOR_YELLOW" ;;
+  purple) square="$COLOR_PURPLE" ;;
+  orange) square="$COLOR_ORANGE" ;;
+  pink)   square="$COLOR_PINK" ;;
+  cyan)   square="$COLOR_CYAN" ;;
   *)      square="" ;;
 esac
 
@@ -93,42 +120,59 @@ label="${session_name:-$short_sid}"
 
 case "$event" in
   Stop)
-    icon="✅"
+    icon="$ICON_STOP"
     subtitle="Task complete"
+    sound="$SOUND_STOP"
     # .message is always null on Stop; the useful content is the tail of what
     # Claude just said, which tells you what finished without switching windows.
     msg=$(summarize "$last_msg")
     [ -n "$msg" ] || msg="Turn finished — ready for input"
     ;;
   Notification)
-    # .notification_type is the authoritative classifier; .message is generic
-    # ("Claude needs your permission") and never names the tool.
+    sound="$SOUND_NOTIFICATION"
+    # .notification_type is the only classifier; .message is generic and never
+    # names the tool. Note that a question box (AskUserQuestion) and a tool
+    # permission prompt both report "permission_prompt" with identical text —
+    # there is no field that distinguishes them, so one label covers both.
     case "$ntype" in
-      permission_prompt) icon="🔐"; subtitle="Permission needed" ;;
-      idle*|*timeout*)   icon="⏳"; subtitle="Waiting on you" ;;
-      "")                icon="💬"; subtitle="Needs your input" ;;
-      *)                 icon="💬"; subtitle="$ntype" ;;
+      permission_prompt) icon="$ICON_ATTENTION"; subtitle="Awaiting your response" ;;
+      idle*|*timeout*)   icon="$ICON_WAITING";   subtitle="Waiting on you" ;;
+      "")                icon="$ICON_ATTENTION"; subtitle="Needs your input" ;;
+      *)                 icon="$ICON_ATTENTION"; subtitle="$ntype" ;;
     esac
     msg=$(summarize "$msg")
     [ -n "$msg" ] || msg="Claude needs your attention"
     ;;
   *)
-    icon="🔔"
+    icon="$ICON_GENERIC"
     subtitle="${event:-Claude Code}"
+    sound="$SOUND_NOTIFICATION"
     msg=$(summarize "$msg")
     [ -n "$msg" ] || msg="Claude Code alert"
     ;;
 esac
 
+# Explicit argument still wins, for installs that pass a sound from settings.json.
+sound="${1:-$sound}"
+
 title="${square:+$square }$icon $project"
 [ -n "$label" ] && subtitle="$label · $subtitle"
 
+# "session" groups by session so a new alert replaces the previous one. That is
+# tidy but can update silently when the earlier banner is still on screen, so
+# "unique" gives every alert its own banner instead.
+if [ "$GROUP_MODE" = "unique" ]; then
+  group="claude-${sid:-default}-$(date +%s)-$$"
+else
+  group="claude-${sid:-default}"
+fi
+
 # --- delivery ---------------------------------------------------------------
 #
-# alerter (UNUserNotificationCenter, notarized) is the preferred path: it is the
-# only one that delivers on current macOS AND reports clicks. It BLOCKS while
-# waiting for a click — that is how it emits @CONTENTCLICKED — so it must run
-# detached or it stalls the hook for the whole timeout.
+# alerter (UNUserNotificationCenter, notarized) is the preferred path: the only
+# one that delivers on current macOS AND reports clicks. It BLOCKS while waiting
+# for a click — that is how it emits @CONTENTCLICKED — so it must run detached
+# or it stalls the hook for the whole timeout.
 #
 # python3 is required for the detach (fork + setsid). Both must be present, or
 # we fall through to osascript: taking this branch without python3 would exit 0
@@ -140,18 +184,18 @@ if [ -x "$ALERTER" ] && command -v python3 >/dev/null 2>&1; then
   # process group, which kills the click listener. fork + setsid puts it in its
   # own session so it outlives the hook.
   A="$ALERTER" T="$title" S="$subtitle" M="$msg" SND="$sound" \
-  G="claude-${sid:-default}" NAME="$session_name" CWD="$cwd" \
+  G="$group" NAME="$session_name" CWD="$cwd" \
   SCPT="$SCPT" APP="$TERM_APP" TMO="$CLICK_TIMEOUT" python3 -c '
 import os, sys, subprocess
 if os.fork() > 0:
     sys.exit(0)          # hook returns immediately
 os.setsid()              # escape the process group Claude Code reaps
 e = os.environ
-out = subprocess.run(
-    [e["A"], "--title", e["T"], "--subtitle", e["S"], "--message", e["M"],
-     "--sound", e["SND"], "--group", e["G"], "--timeout", e["TMO"]],
-    capture_output=True, text=True,
-).stdout
+cmd = [e["A"], "--title", e["T"], "--subtitle", e["S"], "--message", e["M"],
+       "--group", e["G"], "--timeout", e["TMO"]]
+if e.get("SND"):
+    cmd += ["--sound", e["SND"]]
+out = subprocess.run(cmd, capture_output=True, text=True).stdout
 if "CONTENTCLICKED" not in out:
     sys.exit(0)
 # Ghostty exposes an AppleScript dictionary, so the click can land on the exact
@@ -171,7 +215,7 @@ fi
 # Script Editor, so clicking opens Script Editor rather than your terminal.
 # Pass strings as argv rather than interpolating into the AppleScript source —
 # a quote or backslash in .message would otherwise break it or inject.
-osascript - "$title" "$subtitle" "$msg" "$sound" <<'APPLESCRIPT'
+osascript - "$title" "$subtitle" "$msg" "${sound:-Funk}" <<'APPLESCRIPT'
 on run argv
   display notification (item 3 of argv) ¬
     with title (item 1 of argv) ¬

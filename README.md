@@ -13,7 +13,7 @@ Out of the box Claude Code makes no sound and posts nothing when a turn finishes
 ```
 
 - **Colour square** — the session's `/color`, so parallel sessions are distinguishable at a glance
-- **Icon** — 🔐 permission, ⏳ waiting, 💬 input, ✅ complete
+- **Icon** — 🔐 needs a response, ⏳ waiting, ✅ complete
 - **Title** — the project directory
 - **Subtitle** — the session's `/rename` name, plus what kind of attention it wants
 - **Body** — the actual permission text, or a summary of what just finished
@@ -50,19 +50,22 @@ Then make banners stick around: **System Settings → Notifications → alerter 
 
 ## Configuration
 
-Sounds are the hook argument — any basename from `/System/Library/Sounds` or `~/Library/Sounds`:
+Everything lives in `~/.claude/hooks/notify.conf`, created on install from [`notify.conf.example`](notify.conf.example). Edits take effect on the next notification — no restart, since `settings.json` only holds the path and the script is re-read each time.
 
-```json
-"command": "$HOME/.claude/hooks/notify.sh Hero"
+```sh
+SOUND_STOP="Hero"           # turn complete
+SOUND_NOTIFICATION="Funk"   # needs your attention
+TERM_APP="Ghostty"          # what a click focuses
+GROUP_MODE="session"        # or "unique" — see below
+COLOR_CYAN="🩵"             # per-colour glyphs
+ICON_STOP="✅"              # per-event icons
 ```
 
-Everything else is environment variables:
+Sounds are any basename from `/System/Library/Sounds` or `~/Library/Sounds` (`ls` it to browse); set to `""` for silent.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `CLAUDE_NOTIFY_TERM_APP` | `Ghostty` | Terminal to focus on click |
-| `CLAUDE_NOTIFY_TIMEOUT` | `45` | Seconds to listen for a click |
-| `CLAUDE_NOTIFY_ALERTER` | `~/.local/bin/alerter` | Path to the alerter binary |
+**`GROUP_MODE`** is worth a thought. `session` shows one banner per session, so a new alert replaces the previous one — tidy, but if you missed the first, the replacement can update in place without re-alerting. `unique` gives every alert its own banner: nothing is silently replaced, at the cost of a pile-up if you're away.
+
+Re-running `install.sh` never overwrites an existing config, so updates won't discard your choices. Environment variables (`CLAUDE_NOTIFY_TERM_APP`, `CLAUDE_NOTIFY_TIMEOUT`, `CLAUDE_NOTIFY_GROUP_MODE`, `CLAUDE_NOTIFY_BODY_LENGTH`, `CLAUDE_NOTIFY_ALERTER`, `CLAUDE_NOTIFY_CONF`) override the file for one-off cases.
 
 ## How it works
 

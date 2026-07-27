@@ -82,6 +82,12 @@ Which are *populated* differs by event, and the obvious field is often the wrong
 
 Log the raw payload to a file for a few real invocations before assuming any of this. It's undocumented and cheaper to observe than to guess.
 
+### A question box and a tool-permission prompt are indistinguishable
+
+`AskUserQuestion` (the multiple-choice picker) and a tool approval both arrive as `notification_type: "permission_prompt"` with `message: "Claude needs your permission"`. The payloads are byte-identical — verified by capturing both. There is no field to branch on, so a single label has to cover both cases. Don't write "Permission needed" and assume it's accurate; it will be wrong every time Claude asks you a question.
+
+Note also that `AskUserQuestion` *does* fire the `Notification` hook, which isn't obvious — it's easy to conclude the hook is broken when testing with a picker, because early docs suggest only permission prompts and idle timeouts trigger it.
+
 ## Session identity
 
 Two things you'd reasonably expect in the payload aren't there.

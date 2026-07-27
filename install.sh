@@ -87,6 +87,16 @@ cp "$SRC_DIR/focus-ghostty.applescript" "$HOOK_DIR/focus-ghostty.applescript"
 chmod +x "$HOOK_DIR/notify.sh"
 grn "Installed hook files to $HOOK_DIR"
 
+# Never overwrite an existing config — that would silently discard the user's
+# sound and glyph choices on every update.
+if [ -f "$HOOK_DIR/notify.conf" ]; then
+  ylw "Kept your existing config at $HOOK_DIR/notify.conf"
+  ylw "(compare against notify.conf.example for any new options)"
+else
+  cp "$SRC_DIR/notify.conf.example" "$HOOK_DIR/notify.conf"
+  grn "Created config at $HOOK_DIR/notify.conf — edit to change sounds and glyphs"
+fi
+
 # --- settings snippet -------------------------------------------------------
 
 cat <<'EOF'
@@ -98,17 +108,15 @@ if you already have one), then restart Claude Code:
   "hooks": {
     "Stop": [
       { "hooks": [ { "type": "command",
-                     "command": "$HOME/.claude/hooks/notify.sh Hero" } ] }
+                     "command": "$HOME/.claude/hooks/notify.sh" } ] }
     ],
     "Notification": [
       { "hooks": [ { "type": "command",
-                     "command": "$HOME/.claude/hooks/notify.sh Funk" } ] }
+                     "command": "$HOME/.claude/hooks/notify.sh" } ] }
     ]
   }
 
-The argument is the sound name — any basename from /System/Library/Sounds
-or ~/Library/Sounds. Two different sounds let you tell "done" from "needs
-you" without looking.
+Sounds, glyphs, and click behaviour are set in notify.conf — not here.
 ------------------------------------------------------------------------
 
 First notification will raise a macOS permission prompt for alerter, and

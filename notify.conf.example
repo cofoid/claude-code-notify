@@ -1,0 +1,66 @@
+# claude-code-notify configuration
+#
+# Copy to ~/.claude/hooks/notify.conf and edit. Sourced as shell, so quote
+# values and don't put anything here you wouldn't run.
+#
+# Precedence: built-in default  <  this file  <  CLAUDE_NOTIFY_* environment
+# variable. Anything you leave commented out keeps its default.
+
+# --- sounds -----------------------------------------------------------------
+# Any basename from /System/Library/Sounds or ~/Library/Sounds. Run
+# `ls /System/Library/Sounds` to see the options. Set to "" for silent.
+# Two different sounds let you tell "finished" from "needs you" without looking.
+
+SOUND_STOP="Hero"           # turn complete
+SOUND_NOTIFICATION="Funk"   # needs your attention
+
+# --- terminal ---------------------------------------------------------------
+
+# Which app a click focuses. Tab-level routing works for Ghostty; anything else
+# gets app-level activation.
+TERM_APP="Ghostty"
+
+# Seconds to keep listening for a click before giving up. The banner itself
+# stays until dismissed (if you set Alerts style); this only bounds how long
+# the background listener waits.
+CLICK_TIMEOUT="45"
+
+# --- grouping ---------------------------------------------------------------
+# "session"  one banner per session — a new alert REPLACES the previous one.
+#            Keeps things tidy, but if you missed the first, the replacement
+#            can update silently rather than re-alerting.
+# "unique"   every alert is its own banner. Nothing is silently replaced, at
+#            the cost of a pile-up if you're away for a while.
+
+GROUP_MODE="session"
+
+# --- event icons ------------------------------------------------------------
+# Note: Claude Code reports a question box and a tool-permission prompt
+# identically, so ICON_ATTENTION covers both. There is no field to tell them
+# apart — see dead-ends-and-other-learnings.md.
+
+ICON_STOP="✅"        # turn complete
+ICON_ATTENTION="🔐"   # permission prompt or question box
+ICON_WAITING="⏳"     # idle / timeout
+ICON_GENERIC="🔔"     # anything else
+
+# --- session colour glyphs --------------------------------------------------
+# Claude Code has exactly 8 colours. Six have an exact Unicode square; pink and
+# cyan don't, so they default to the nearest heart. Set any to "" to omit.
+#
+# If pink and cyan read too closely to purple and blue at banner size, two-glyph
+# blends disambiguate: COLOR_CYAN="🟩🟦"  COLOR_PINK="🟪🩷"
+
+COLOR_RED="🟥"
+COLOR_BLUE="🟦"
+COLOR_GREEN="🟩"
+COLOR_YELLOW="🟨"
+COLOR_PURPLE="🟪"
+COLOR_ORANGE="🟧"
+COLOR_PINK="🩷"
+COLOR_CYAN="🩵"
+
+# --- body text --------------------------------------------------------------
+# Characters of message body to show before clipping. macOS truncates long
+# bodies anyway; this keeps the clip predictable.
+BODY_LENGTH="140"
