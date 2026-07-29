@@ -214,7 +214,10 @@ else
   [ -n "$bin" ] || { red "No alerter binary in the release archive."; exit 1; }
 
   # Verify the signature before trusting it. Refuse rather than install blind.
-  if ! spctl -a -vv -t install "$bin" 2>&1 | grep -q "accepted"; then
+  # Gate on the exit status, not on grepping the output: spctl echoes the path
+  # being assessed into the same stream, so an archive shipping its payload as
+  # "alerter-accepted" puts the pass token inside its own rejection message.
+  if ! spctl -a -t install "$bin" >/dev/null 2>&1; then
     red "alerter failed Gatekeeper verification — refusing to install."
     exit 1
   fi
