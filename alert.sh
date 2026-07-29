@@ -62,12 +62,8 @@ if e.get("SND"):
 if e.get("DND") == "1":
     cmd += ["--ignore-dnd"]
 out = subprocess.run(cmd, capture_output=True, text=True).stdout
-# A banner has two clickable parts and they report differently: the body emits
-# @CONTENTCLICKED, the "Show" button emits @ACTIONCLICKED. Testing only for the
-# first leaves "Show" a dead button — it dismisses the banner and focuses
-# nothing, which reads as the click-through being broken rather than as one
-# missing token. Anything else (@TIMEOUT, @CLOSED) is not a click.
-if not any(tok in out for tok in ("CONTENTCLICKED", "ACTIONCLICKED")):
+# @CONTENTCLICKED = body, @ACTIONCLICKED = "Show"; @TIMEOUT/@CLOSED are not clicks.
+if "CLICKED" not in out:
     sys.exit(0)
 # Ghostty exposes an AppleScript dictionary, so the click can land on the exact
 # tab. Any other terminal falls back to app-level activation.
