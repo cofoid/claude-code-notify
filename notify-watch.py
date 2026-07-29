@@ -104,6 +104,13 @@ def drain(spool, deliver_fn=deliver):
             except ValueError:
                 log(f"skipping unparseable line in {spool}: {raw[:120]!r}")
                 continue
+            # Valid JSON that is not an object (a list, string, number) would
+            # raise out of deliver() before the offset is written, so the next
+            # poll re-reads the same bytes and redelivers every line before it,
+            # once per interval, forever. Skip it like any other bad line.
+            if not isinstance(rec, dict):
+                log(f"skipping non-object line in {spool}: {raw[:120]!r}")
+                continue
             deliver_fn(rec)
             delivered += 1
 
@@ -155,8 +162,9 @@ def self_check():
         assert drain(spool, fake) == 1, seen
         assert seen[-1] == "three", seen
 
-        # A junk line is skipped without stalling the ones after it.
-        append('not json\n{"title":"four"}\n')
+        # A junk line — unparseable, or valid JSON that is not an object — is
+        # skipped without stalling the ones after it.
+        append('not json\n[1,2]\n"str"\n{"title":"four"}\n')
         assert drain(spool, fake) == 1, seen
         assert seen[-1] == "four", seen
 
