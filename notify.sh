@@ -71,6 +71,9 @@ DESCRIBE_REQUEST="${CLAUDE_NOTIFY_DESCRIBE_REQUEST:-$DESCRIBE_REQUEST}"
 DESCRIBER="$(dirname "$0")/describe-request.py"
 ALERT="$(dirname "$0")/alert.sh"
 SPOOL="${CLAUDE_NOTIFY_SPOOL:-$HOME/.claude/notify-spool.jsonl}"
+# Where ssh lands its RemoteForward for an SSH session. Absent on a container,
+# which is how the two transports tell themselves apart with no extra config.
+SOCKET="${CLAUDE_NOTIFY_SOCKET:-$HOME/.claude/notify.d/sock}"
 
 # Character- rather than byte-oriented truncation, so clipping can't slice a
 # multi-byte glyph in half and produce mojibake in the banner.
@@ -207,30 +210,53 @@ fi
 
 # --- delivery ---------------------------------------------------------------
 #
-# Not macOS: this is a devcontainer, which has no Notification Center to post
-# to and no route to the host's. But the container's ~/.claude IS a host
-# directory — the bind mount that carries the credentials — so the mount is the
-# delivery channel. No network, no SSH, no daemon in the container.
+# Not macOS: the session is somewhere with no Notification Center and no route
+# to the host's. Two such somewheres, and they differ only in transport:
 #
-# The notification is already finished by this point, which is deliberate: the
-# host watcher never sees a transcript path or a session file, both of which
-# name paths that only exist inside the container.
+#   devcontainer — its ~/.claude IS a host directory, the bind mount that
+#                  carries the credentials, so the mount is the channel. ONE
+#                  \n-terminated line, appended: concurrent container sessions
+#                  share the file and a single small append is what keeps their
+#                  writes from interleaving.
+#   over SSH     — no shared filesystem, but the connection itself is a channel.
+#                  ssh forwards a unix socket here (RemoteForward) and the Mac
+#                  watcher is listening on the other end of it.
 #
-# ONE \n-terminated line, appended. Concurrent container sessions share this
-# file, and a single small append is what keeps their writes from interleaving.
+# The notification is already finished by this point, which is what lets both
+# work: the watcher never sees a transcript path or a session file, both of
+# which name paths that only exist on this side.
 if [ "$(uname)" != "Darwin" ]; then
-  if command -v jq >/dev/null 2>&1; then
-    jq -cn \
-      --arg title "$title" --arg subtitle "$subtitle" --arg message "$msg" \
-      --arg sound "$sound" --arg group "$group" \
-      --arg name "$session_name" --arg cwd "$cwd" \
-      '{$title, $subtitle, $message, $sound, $group, $name, $cwd}' >> "$SPOOL"
-  else
-    # Say so rather than exiting 0 into silence: a container without jq has
+  if ! command -v jq >/dev/null 2>&1; then
+    # Say so rather than exiting 0 into silence: a session without jq has
     # already produced an empty-field notification, and no delivery at all is
     # the kind of failure that reads as "the hook never fired".
-    echo "claude-code-notify: jq not found in container — notification dropped" >&2
+    echo "claude-code-notify: jq not found — notification dropped" >&2
+    exit 0
   fi
+
+  line=$(jq -cn \
+    --arg title "$title" --arg subtitle "$subtitle" --arg message "$msg" \
+    --arg sound "$sound" --arg group "$group" \
+    --arg name "$session_name" --arg cwd "$cwd" \
+    '{$title, $subtitle, $message, $sound, $group, $name, $cwd}')
+
+  # Socket first: its presence means ssh is forwarding one, which only happens
+  # for an SSH session. A container never has one and falls straight through.
+  if [ -S "$SOCKET" ] && command -v python3 >/dev/null 2>&1; then
+    if printf '%s\n' "$line" | python3 -c 'import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect(sys.argv[1])
+s.sendall(sys.stdin.buffer.read())
+s.close()' "$SOCKET" 2>/dev/null; then
+      exit 0
+    fi
+    # The socket exists but nothing answered: the tunnel dropped without
+    # cleaning up. Fall through to the spool so the line is not lost, and say
+    # why, because otherwise this is silent for the rest of the session.
+    echo "claude-code-notify: $SOCKET did not accept — is the SSH tunnel up?" >&2
+  fi
+
+  printf '%s\n' "$line" >> "$SPOOL"
   exit 0
 fi
 

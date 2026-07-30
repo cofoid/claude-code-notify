@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Post notifications spooled by Claude Code sessions running in devcontainers.
+"""Post notifications spooled by Claude Code sessions running elsewhere.
 
-Usage: notify-watch.py [--interval SECONDS] <spool-path> [<spool-path> ...]
+Usage: notify-watch.py [--interval SECONDS] [--listen SOCKET] [<spool-path> ...]
        notify-watch.py --self-check
 
 A container has no Notification Center and no route to the host's. What it does
@@ -9,6 +9,12 @@ have is a bind-mounted ~/.claude, which is a host directory — so notify.sh
 finishes the notification inside the container and appends it there as one JSON
 line. This drains those files on the host and hands each line to alert.sh, the
 same delivery path a host session uses.
+
+An SSH session has no shared filesystem, so there is nothing to drain. What it
+has instead is the connection itself: --listen binds a unix socket that ssh
+forwards to the remote (RemoteForward), and the remote writes the same one JSON
+line into it. Different transport, identical payload and delivery — which is
+the whole reason the notification is finished before it travels.
 
 With --interval it stays resident and polls; without it, it drains once and
 exits. Resident is what the launchd agent uses, and the reason is measured:
@@ -25,6 +31,8 @@ both fully consumed and has been untouched for a while.
 
 import json
 import os
+import select
+import socket
 import subprocess
 import sys
 import time
@@ -44,6 +52,14 @@ SPOOL_MAX = 256 * 1024
 QUIET_SECONDS = 60
 
 FIELDS = ("title", "subtitle", "message", "sound", "group", "name", "cwd")
+
+# A forwarded socket is a channel into your Notification Center from another
+# machine, so it is worth locking down. The DIRECTORY mode is the control that
+# matters: ssh(1) warns that "not all operating systems honor the file mode on
+# Unix-domain socket files", and bind() honours the umask (0755 in practice, not
+# the 0600 ssh itself defaults to). A 0700 parent is enforced everywhere.
+SOCKET_DIR_MODE = 0o700
+SOCKET_MODE = 0o600
 
 
 def log(msg):
@@ -69,6 +85,30 @@ def write_offset(path, offset):
             fh.write(str(offset))
     except OSError as exc:
         log(f"could not record offset {path}: {exc}")
+
+
+def handle(raw, source, deliver_fn=deliver):
+    """Deliver one JSON line. Returns 1 if delivered, 0 if it was skipped.
+
+    Shared by both transports so a malformed line is treated the same way
+    whether it arrived through a spool file or the SSH socket.
+    """
+    if not raw.strip():
+        return 0
+    try:
+        rec = json.loads(raw.decode("utf-8", "replace"))
+    except ValueError:
+        log(f"skipping unparseable line in {source}: {raw[:120]!r}")
+        return 0
+    # Valid JSON that is not an object (a list, string, number) would raise out
+    # of deliver() before the offset is written, so the next poll re-reads the
+    # same bytes and redelivers every line before it, once per interval,
+    # forever. Skip it like any other bad line.
+    if not isinstance(rec, dict):
+        log(f"skipping non-object line in {source}: {raw[:120]!r}")
+        return 0
+    deliver_fn(rec)
+    return 1
 
 
 def drain(spool, deliver_fn=deliver):
@@ -97,22 +137,7 @@ def drain(spool, deliver_fn=deliver):
         end = data.rfind(b"\n") + 1
 
         for raw in data[:end].splitlines():
-            if not raw.strip():
-                continue
-            try:
-                rec = json.loads(raw.decode("utf-8", "replace"))
-            except ValueError:
-                log(f"skipping unparseable line in {spool}: {raw[:120]!r}")
-                continue
-            # Valid JSON that is not an object (a list, string, number) would
-            # raise out of deliver() before the offset is written, so the next
-            # poll re-reads the same bytes and redelivers every line before it,
-            # once per interval, forever. Skip it like any other bad line.
-            if not isinstance(rec, dict):
-                log(f"skipping non-object line in {spool}: {raw[:120]!r}")
-                continue
-            deliver_fn(rec)
-            delivered += 1
+            delivered += handle(raw, spool, deliver_fn)
 
         offset += end
         write_offset(off_path, offset)
@@ -128,6 +153,45 @@ def drain(spool, deliver_fn=deliver):
         except OSError as exc:
             log(f"could not truncate {spool}: {exc}")
 
+    return delivered
+
+
+def listen(path):
+    """Bind the socket ssh forwards to remote sessions. Returns the listener."""
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    os.chmod(directory, SOCKET_DIR_MODE)
+    # An unclean exit leaves the socket file behind, and bind() on an existing
+    # path fails with EADDRINUSE — which would take the watcher down on the
+    # first reboot after a crash. Nothing else owns this path, so reclaim it.
+    if os.path.exists(path):
+        os.unlink(path)
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(path)
+    os.chmod(path, SOCKET_MODE)
+    srv.listen(16)
+    return srv
+
+
+def accept(srv, deliver_fn=deliver):
+    """Deliver every complete line from one connection. Returns how many."""
+    conn, _ = srv.accept()
+    chunks = []
+    try:
+        while True:
+            block = conn.recv(65536)
+            if not block:
+                break
+            chunks.append(block)
+    finally:
+        conn.close()
+
+    data = b"".join(chunks)
+    # Same rule as the spool: stop at the last newline. A remote that died
+    # mid-write should not turn into half a notification.
+    delivered = 0
+    for raw in data[: data.rfind(b"\n") + 1].splitlines():
+        delivered += handle(raw, "socket", deliver_fn)
     return delivered
 
 
@@ -184,6 +248,33 @@ def self_check():
         assert os.path.getsize(spool) == 0, os.path.getsize(spool)
         assert read_offset(spool + ".offset") == 0
 
+        # The SSH transport: same payload, same bad-line handling, and the
+        # permissions setup is expected to apply rather than to be pasted.
+        sock_path = os.path.join(tmp, "notify.d", "sock")
+        srv = listen(sock_path)
+        try:
+            import stat
+
+            assert stat.S_IMODE(os.stat(sock_path).st_mode) == SOCKET_MODE
+            assert (
+                stat.S_IMODE(os.stat(os.path.dirname(sock_path)).st_mode)
+                == SOCKET_DIR_MODE
+            )
+
+            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            client.connect(sock_path)
+            client.sendall(b'{"title":"six"}\nnot json\n[1,2]\n{"title":"seven"}\n')
+            client.close()
+            assert select.select([srv], [], [], 5)[0], "listener saw no connection"
+            assert accept(srv, fake) == 2, seen
+            assert seen[-2:] == ["six", "seven"], seen
+
+            # A rebind over a leftover socket file must not raise: that is the
+            # state a crash leaves behind, and it would break every restart.
+            listen(sock_path).close()
+        finally:
+            srv.close()
+
     print("self-check passed")
 
 
@@ -201,22 +292,48 @@ def main():
         self_check()
         return
 
-    interval = None
-    if args and args[0] == "--interval":
-        interval = float(args[1])
+    interval, sock_path = None, None
+    while len(args) >= 2 and args[0] in ("--interval", "--listen"):
+        if args[0] == "--interval":
+            interval = float(args[1])
+        else:
+            sock_path = args[1]
         args = args[2:]
-    if not args:
+    if not args and sock_path is None:
         print(__doc__.strip().splitlines()[2], file=sys.stderr)
         sys.exit(2)
 
-    if interval is None:
+    # One-shot drain, for a spool-only invocation with nothing to wait on.
+    if interval is None and sock_path is None:
         drain_all(args)
         return
+    if interval is None:
+        interval = 1.0  # --listen has to stay resident to hold the socket
 
-    log(f"watching {len(args)} spool(s) every {interval}s")
-    while True:
-        drain_all(args)
-        time.sleep(interval)
+    srv = listen(sock_path) if sock_path else None
+    log(f"watching {len(args)} spool(s) every {interval}s"
+        + (f", listening on {sock_path}" if srv else ""))
+    try:
+        while True:
+            drain_all(args)
+            if srv is None:
+                time.sleep(interval)
+                continue
+            # select doubles as the sleep: an SSH notification is delivered the
+            # moment it arrives instead of waiting out the poll interval, and an
+            # idle pass still costs one stat per spool.
+            if select.select([srv], [], [], interval)[0]:
+                try:
+                    accept(srv)
+                except OSError as exc:  # one bad connection must not kill the loop
+                    log(f"socket error: {exc}")
+    finally:
+        if srv is not None:
+            srv.close()
+            try:
+                os.unlink(sock_path)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

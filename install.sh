@@ -4,8 +4,10 @@
 #   ./install.sh                      install / update, for host sessions
 #   ./install.sh --container <dir>    install into a devcontainer's bind-mounted
 #                                     ~/.claude (give the HOST path of it)
-#   ./install.sh --watch <dir> [...]  launchd agent that posts what those
-#                                     containers spool
+#   ./install.sh --remote <sshhost>   install into an SSH host's ~/.claude and
+#                                     print the RemoteForward line to add
+#   ./install.sh --watch [<dir> ...]  launchd agent that posts what containers
+#                                     spool and what SSH hosts forward
 #   ./install.sh --uninstall          remove hook files and the agent
 #
 # Idempotent: safe to re-run. Never edits settings.json for you — it prints the
@@ -23,6 +25,10 @@ AGENT_LABEL="com.claude-code-notify.watch"
 AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
 LOG_DIR="$HOME/Library/Logs/claude-code-notify"
 SPOOL_NAME="notify-spool.jsonl"
+# Where ssh lands its RemoteForward, on both ends. Same relative path either
+# side keeps the config line symmetrical and easy to read.
+SOCK_DIR_REL=".claude/notify.d"
+SOCK_DIR="$HOME/$SOCK_DIR_REL"
 
 red()  { printf '\033[31m%s\033[0m\n' "$1"; }
 grn()  { printf '\033[32m%s\033[0m\n' "$1"; }
@@ -38,7 +44,12 @@ if [ "$1" = "--uninstall" ]; then
         "$HOOK_DIR/focus-ghostty.applescript" "$HOOK_DIR/describe-request.py" \
         "$HOOK_DIR/notify-watch.py"
   grn "Removed hook files from $HOOK_DIR"
+  # Only the socket, not the directory: ssh recreates the socket on the next
+  # connection, and an SSH host's own hook files live on that host.
+  rm -f "$SOCK_DIR/sock"
   ylw "Remove the Stop and Notification entries from ~/.claude/settings.json by hand."
+  ylw "Remote installs (--remote) are left alone; remove those with their own ~/.claude."
+  ylw "Also drop any RemoteForward lines from ~/.ssh/config."
   ylw "Container installs (--container) are left alone; remove those dirs yourself."
   ylw "The alerter binary at $BIN_DIR/alerter was left in place."
   exit 0
@@ -108,6 +119,94 @@ EOF
   exit 0
 fi
 
+# --- SSH host install -------------------------------------------------------
+#
+# An SSH session has no shared filesystem, so the container trick does not
+# apply. The connection itself is the channel: ssh forwards a unix socket into
+# the remote, notify.sh writes its one JSON line into that, and the watcher on
+# this Mac is listening on the other end.
+#
+# The socket is created by the REMOTE sshd, so its mode is set by the remote's
+# StreamLocalBindMask (0600 by default) and nothing here can guarantee it.
+# ssh(1) also warns that socket file modes are not honoured on every OS. So the
+# control that actually holds is the 0700 directory it sits in, which is created
+# here rather than left to a pasted command.
+
+if [ "$1" = "--remote" ]; then
+  host="$2"
+  [ -n "$host" ] || { red "Usage: install.sh --remote <ssh host or alias>"; exit 1; }
+
+  remote_home=$(ssh "$host" 'printf %s "$HOME"') || {
+    red "Could not reach $host over ssh."; exit 1; }
+  [ -n "$remote_home" ] || { red "Could not determine \$HOME on $host."; exit 1; }
+
+  # mkdir -m applies the mode at creation; chmod after covers a dir that already
+  # exists from an earlier install with a laxer umask.
+  ssh "$host" "mkdir -p ~/.claude/hooks ~/$SOCK_DIR_REL \
+               && chmod 700 ~/$SOCK_DIR_REL" || {
+    red "Could not create the remote directories."; exit 1; }
+
+  # alert.sh and the AppleScript stay here: the remote has nothing to deliver to.
+  scp -q "$SRC_DIR/notify.sh" "$SRC_DIR/describe-request.py" \
+      "$host:$remote_home/.claude/hooks/" || {
+    red "Could not copy the hook files to $host."; exit 1; }
+  ssh "$host" "chmod +x ~/.claude/hooks/notify.sh ~/.claude/hooks/describe-request.py"
+
+  if ssh "$host" "[ -f ~/.claude/hooks/notify.conf ]"; then
+    ylw "Kept the existing config at $host:~/.claude/hooks/notify.conf"
+  else
+    scp -q "$SRC_DIR/notify.conf.example" "$host:$remote_home/.claude/hooks/notify.conf"
+    grn "Created config at $host:~/.claude/hooks/notify.conf"
+  fi
+
+  grn "Installed hook files to $host:~/.claude/hooks"
+  printf 'Remote socket dir: %s/%s (mode %s)\n' "$host:$remote_home" "$SOCK_DIR_REL" \
+    "$(ssh "$host" "stat -c %a ~/$SOCK_DIR_REL 2>/dev/null || stat -f %Lp ~/$SOCK_DIR_REL")"
+
+  ssh "$host" 'command -v jq >/dev/null 2>&1' \
+    || ylw "jq is missing on $host — notifications will post with empty fields."
+  ssh "$host" 'command -v python3 >/dev/null 2>&1' \
+    || ylw "python3 is missing on $host — it cannot write to the socket at all."
+
+  cat <<EOF
+
+------------------------------------------------------------------------
+Add to ~/.ssh/config on this Mac. RemoteForward does NOT expand ~, so both
+paths are absolute:
+
+  Host $host
+      RemoteForward $remote_home/$SOCK_DIR_REL/sock $SOCK_DIR/sock
+      StreamLocalBindUnlink yes
+
+StreamLocalBindUnlink is what stops a socket left behind by a dropped
+connection from blocking the next one. It is honoured by whichever end
+creates the socket, so if forwarding still fails with "remote port
+forwarding failed", the remote's /etc/ssh/sshd_config needs:
+
+  StreamLocalBindUnlink yes
+
+Then add this to $host:~/.claude/settings.json:
+
+  "hooks": {
+    "Stop": [
+      { "hooks": [ { "type": "command",
+                     "command": "\$HOME/.claude/hooks/notify.sh" } ] }
+    ],
+    "Notification": [
+      { "hooks": [ { "type": "command",
+                     "command": "\$HOME/.claude/hooks/notify.sh" } ] }
+    ]
+  }
+
+Make sure the listener is running on this Mac:
+
+  ./install.sh --watch
+------------------------------------------------------------------------
+
+EOF
+  exit 0
+fi
+
 # --- watcher agent ----------------------------------------------------------
 #
 # One resident launchd agent drains every container spool, polling once a
@@ -120,11 +219,18 @@ fi
 
 if [ "$1" = "--watch" ]; then
   shift
-  [ $# -gt 0 ] || { red "Usage: install.sh --watch <container ~/.claude dir> [...]"; exit 1; }
+  # Container dirs are optional: with none, this is an SSH-only listener.
 
   mkdir -p "$HOOK_DIR" "$LOG_DIR" "$HOME/Library/LaunchAgents"
   cp "$SRC_DIR/notify-watch.py" "$HOOK_DIR/notify-watch.py"
   chmod +x "$HOOK_DIR/notify-watch.py"
+
+  # The socket ssh forwards into. 0700 on the DIRECTORY is the control that
+  # holds — a socket's own mode is not honoured on every OS, and this is a
+  # channel into your Notification Center from another machine. mkdir -m sets
+  # the mode at creation; the chmod also fixes a dir from an earlier install.
+  mkdir -p -m 700 "$SOCK_DIR"
+  chmod 700 "$SOCK_DIR"
 
   spools=""
   for dir in "$@"; do
@@ -145,7 +251,9 @@ if [ "$1" = "--watch" ]; then
     <array>
         <string>$HOOK_DIR/notify-watch.py</string>
         <string>--interval</string>
-        <string>1</string>$spools
+        <string>1</string>
+        <string>--listen</string>
+        <string>$SOCK_DIR/sock</string>$spools
     </array>
     <!-- Resident, not periodic: launchd will not respawn a job more than once
          every ten seconds, which made a StartInterval/WatchPaths version take
@@ -169,9 +277,14 @@ EOF
 
   launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$AGENT_PLIST"
-  grn "Watcher agent loaded — draining:"
-  for dir in "$@"; do echo "  $dir/$SPOOL_NAME"; done
+  grn "Watcher agent loaded."
+  if [ $# -gt 0 ]; then
+    echo "Draining container spools:"
+    for dir in "$@"; do echo "  $dir/$SPOOL_NAME"; done
+  fi
+  echo "Listening for SSH sessions on $SOCK_DIR/sock"
   echo "Log: $LOG_DIR/watch.log"
+  ylw "Set up each SSH host with: ./install.sh --remote <host>"
   exit 0
 fi
 
