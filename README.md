@@ -93,6 +93,48 @@ fallback can't help here — the payload's `cwd` is a `/workspaces/...` path no
 host tab will ever match — but it fails closed, falling back to activating the
 app rather than focusing an arbitrary tab.
 
+## SSH sessions
+
+A remote host has no shared filesystem, so the container's spool trick doesn't
+apply. What it does have is the connection itself: `ssh` forwards a unix socket
+into the remote, `notify.sh` writes the same finished notification into it, and
+the watcher on your Mac is listening on the other end. Same payload, same
+delivery — only the transport differs.
+
+```sh
+./install.sh --watch                 # listener on this Mac (once)
+./install.sh --remote myserver       # hook files + 0700 socket dir on the remote
+```
+
+`--remote` prints the exact `~/.ssh/config` block to add, with absolute paths
+filled in — `RemoteForward` doesn't expand `~`:
+
+```
+Host myserver
+    RemoteForward /home/you/.claude/notify.d/sock /Users/you/.claude/notify.d/sock
+    StreamLocalBindUnlink yes
+```
+
+`StreamLocalBindUnlink` stops a socket orphaned by a dropped connection from
+blocking the next one. It's honoured by whichever end creates the socket, so if
+forwarding fails with "remote port forwarding failed", the remote's
+`sshd_config` needs it too.
+
+Both ends keep the socket in a `0700` directory, created by the installer. That
+is the permission that matters: `ssh(1)` warns socket file modes aren't honoured
+on every OS, and the socket is created by the remote `sshd`, so the client can't
+guarantee its mode.
+
+If the tunnel is down, the notification is appended to the remote's spool and a
+line goes to stderr rather than vanishing.
+
+Click-to-tab focuses the Ghostty tab holding the SSH session, via the session
+name in the title. The working-directory fallback can't work here — the remote
+`cwd` matches no local tab — so `/rename` is worth using.
+
+Re-running `--watch` rewrites the launchd agent, so pass your container
+directories again if you have any; otherwise the new agent only listens for SSH.
+
 ## Configuration
 
 Everything lives in `~/.claude/hooks/notify.conf`, created on install from [`notify.conf.example`](notify.conf.example). Edits take effect on the next notification — no restart, since `settings.json` only holds the path and the script is re-read each time.
@@ -157,9 +199,11 @@ If you're extending this or writing your own Claude Code notification hook, [dea
 ./install.sh --uninstall
 ```
 
-This also unloads the watcher agent. Container installs are left alone — delete
-`hooks/` and `notify-spool.jsonl*` from the credential directory yourself, and
-remove the `hooks` block from its `settings.json`.
+This also unloads the watcher agent and removes the SSH socket. Container and
+remote installs are left alone — delete `hooks/` and `notify-spool.jsonl*` from
+the credential directory (or the remote's `~/.claude`) yourself, and remove the
+`hooks` block from its `settings.json`. Drop any `RemoteForward` lines from
+`~/.ssh/config` too.
 
 Then remove the `Stop` and `Notification` entries from `~/.claude/settings.json`.
 

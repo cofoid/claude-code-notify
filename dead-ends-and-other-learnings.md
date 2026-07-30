@@ -24,6 +24,18 @@ This isn't overridable — the posting app owns the click target. It also means 
 
 `--sender <bundle-id>` looks like the way to make notifications appear to come from your terminal. Passing your terminal's bundle id makes alerter **hang**. macOS validates `--sender` against the process's actual bundle identity and silently drops the mismatch. Let it default.
 
+### Terminal notification escape sequences are not a substitute for alerter
+
+Ghostty supports both `OSC 777` and `OSC 9`, which would be a tempting way to
+notify over SSH: the pty is already there, so no tunnel, no listener, nothing to
+install. Written to the pty resolved via `$PPID` (see above) both sequences
+succeed — exit 0, no error — and **neither renders a banner while the surface is
+focused**, which is exactly when a hook fires.
+
+Even where they do render, they carry no click-reporting channel, no sound
+selection and no group identity, so the whole click-through-to-the-right-tab
+feature would be gone. Not a shortcut worth taking.
+
 ## Audio
 
 ### Don't use `afplay` in a hook
@@ -220,6 +232,40 @@ inside a container many times.
 Worth checking on your own setup before relying on it, because if ownership
 *did* propagate, the host watcher would lose its own spool on the next container
 start.
+
+## SSH sessions
+
+### The socket's own permissions are the wrong control — the directory is the right one
+
+A forwarded socket is a channel into your Notification Center from another
+machine, so it is worth locking down. Three separate reasons not to rely on the
+socket's own mode:
+
+- OpenSSH already defaults `StreamLocalBindMask` to `0177`, i.e. `0600` — but for
+  a `RemoteForward` the socket is created by the **remote** `sshd`, so it is the
+  remote's config that decides and nothing on the client can guarantee it.
+- `ssh_config(5)` says outright: *"not all operating systems honor the file mode
+  on Unix-domain socket files."*
+- On the Mac side ssh isn't creating it at all — `notify-watch.py` is — and
+  Python's `bind()` honours the umask, which is `0755` in practice.
+
+A `0700` parent directory is enforced everywhere and covers all three. Both ends
+create `~/.claude/notify.d` with that mode; the `0600` on the socket is a second
+layer, not the mechanism.
+
+### `RemoteForward` does not expand `~`
+
+Both paths must be absolute, which means the setup step has to look up the
+remote `$HOME` (`ssh host 'printf %s "$HOME"'`) rather than print a `~` and hope.
+
+### A dropped connection leaves the socket behind and blocks the next one
+
+`bind()` on an existing path fails with `EADDRINUSE`, so an unclean disconnect
+breaks the *following* connection rather than the one that failed. `ssh` needs
+`StreamLocalBindUnlink yes`, honoured by whichever end creates the socket — so if
+forwarding still fails with "remote port forwarding failed", it is the remote's
+`sshd_config` that needs it. The watcher unlinks its own stale socket before
+binding for the same reason.
 
 ## Environment gotchas
 
