@@ -78,6 +78,37 @@ though they exist once in physical memory. The ~7 MB figure is the real marginal
 cost; twenty unattended notifications is nearer 140 MB than 560 MB. It only
 accumulates while they sit unread, since dismissing one exits its process.
 
+The size is the Cocoa runtime, not the payload — `otool -L` shows alerter
+linking AppKit, Foundation and the Swift runtime to deliver a few hundred bytes
+of text. And the cost is not per notification, it is per process *waiting for a
+click*. Posting is instantaneous and leaves nothing resident.
+
+### A notification is owned by its alerter process and dies with it
+
+The obvious optimisation, given the above, is to post and let the process exit:
+permanent notifications at zero standing cost, losing only click-to-focus. It
+does not work. Kill an alerter and its notification disappears from Notification
+Center immediately. Verified by posting two, killing one, and observing that only
+the survivor remained listed.
+
+So notification lifetime *is* process lifetime, and `CLICK_TIMEOUT` is really the
+notification's lifetime rather than a listener timeout. Persistence and the
+resident 7 MB are the same purchase and cannot be separated. The only way around
+it is one long-lived process owning every notification and its click callbacks,
+which needs a bundle identity, which means a signed and notarised `.app`.
+
+### Group replacement reaps the superseded process
+
+`GROUP_MODE="session"` reuses one group id per session so each notification
+replaces the last. The worry is orphans: processes still waiting for a click on
+a notification no longer on screen, invisible and unreapable.
+
+It does not happen. Posting `ONE` then `TWO` to the same group leaves exactly one
+process, and it is `TWO` — the superseded alerter exits when its notification is
+replaced. So `session` genuinely caps the cost at one process per active session,
+and its only real downside remains the documented one: a replacement can update a
+banner in place without re-alerting, so a notification can be missed.
+
 ## Audio
 
 ### Don't use `afplay` in a hook
