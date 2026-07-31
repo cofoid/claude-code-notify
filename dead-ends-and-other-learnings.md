@@ -52,6 +52,32 @@ and unreadable without Full Disk Access, so that route is closed too.
 The check that actually works is behavioural: fire one notification through each
 delivery path with distinguishable text and see which reaches the screen.
 
+### `CLICK_TIMEOUT` auto-closes the notification, it does not just stop listening
+
+alerter's `--timeout` is documented as *"Auto-close the notification after N
+seconds"*, and it means it: when the timer fires, the notification is withdrawn
+from Notification Center. A non-zero value therefore means any alert you did not
+happen to see inside that window leaves nothing behind at all, which reads as
+notifications never arriving.
+
+`0` (alerter's own default) disables the auto-close. The notification stays until
+clicked or dismissed, and click-to-focus keeps working the whole time instead of
+going dead after the timer.
+
+The cost is one resident alerter per undismissed notification, since it blocks
+waiting for the click. Measured, because `ps` is misleading here:
+
+| Measure | Value |
+| --- | --- |
+| `ps` RSS, posted | ~28 MB |
+| Physical footprint, posted | ~7.1 MB |
+| Physical footprint, spawned but not yet delivered | ~2.1 MB |
+
+RSS counts the shared Cocoa framework pages in every process that maps them,
+though they exist once in physical memory. The ~7 MB figure is the real marginal
+cost; twenty unattended notifications is nearer 140 MB than 560 MB. It only
+accumulates while they sit unread, since dismissing one exits its process.
+
 ## Audio
 
 ### Don't use `afplay` in a hook

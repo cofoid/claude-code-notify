@@ -25,10 +25,17 @@ SOUND_NOTIFICATION="Funk"   # needs your attention
 # forward but leaves you to find the tab.
 TERM_APP="Ghostty"
 
-# Seconds to keep listening for a click before giving up. The banner itself
-# stays until dismissed (if you set Alerts style); this only bounds how long
-# the background listener waits.
-CLICK_TIMEOUT="45"
+# Seconds before the notification AUTO-CLOSES. This is alerter's --timeout, and
+# it withdraws the notification from Notification Center when it fires — it does
+# not merely stop listening for a click. A non-zero value means a notification
+# you did not see within that window is gone, with nothing left in the tray.
+#
+# "0" disables the auto-close: the notification stays until you click or dismiss
+# it, and click-to-focus keeps working the whole time. The cost is that alerter
+# stays resident until then (see below), so every undismissed notification holds
+# a process. Pair it with Alert style > Alerts in System Settings, or the banner
+# still slides away on its own even though the entry survives.
+CLICK_TIMEOUT="0"
 
 # --- grouping ---------------------------------------------------------------
 # "unique"   (default) every alert is its own banner. Nothing is silently

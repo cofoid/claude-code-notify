@@ -17,7 +17,11 @@ title="$1"; subtitle="$2"; msg="$3"; sound="$4"
 group="$5"; session_name="$6"; cwd="$7"
 
 TERM_APP="Ghostty"
-CLICK_TIMEOUT="45"
+# alerter's --timeout, which AUTO-CLOSES the notification rather than just
+# bounding the click listener: a non-zero value withdraws it from Notification
+# Center, so one you missed leaves nothing behind. "0" disables the auto-close
+# and keeps click-to-focus live until you act on it.
+CLICK_TIMEOUT="0"
 # Focus/Do Not Disturb silently suppresses notifications, which looks exactly
 # like a broken hook. You opted into these alerts, so they bypass it by default.
 IGNORE_DND="1"
