@@ -163,9 +163,17 @@ if [ "$1" = "--remote" ]; then
   host="$2"
   [ -n "$host" ] || { red "Usage: install.sh --remote <ssh host or alias>"; exit 1; }
 
-  remote_home=$(ssh "$host" 'printf %s "$HOME"') || {
+  # Ask with a sentinel rather than trusting bare stdout. A host whose profile
+  # prints an MOTD or banner on non-interactive login would otherwise fold that
+  # text into the path, and the resulting RemoteForward line fails to bind with
+  # nothing obviously wrong in it. Must be absolute, so check that too.
+  remote_probe=$(ssh "$host" 'printf "CCN_HOME=%s\n" "$HOME"') || {
     red "Could not reach $host over ssh."; exit 1; }
-  [ -n "$remote_home" ] || { red "Could not determine \$HOME on $host."; exit 1; }
+  remote_home=$(printf '%s\n' "$remote_probe" | sed -n 's/^CCN_HOME=//p' | tail -1)
+  case "$remote_home" in
+    /*) ;;
+    *)  red "Could not read \$HOME on $host — got: '$remote_home'"; exit 1 ;;
+  esac
 
   # mkdir -m applies the mode at creation; chmod after covers a dir that already
   # exists from an earlier install with a laxer umask.
