@@ -36,6 +36,22 @@ Even where they do render, they carry no click-reporting channel, no sound
 selection and no group identity, so the whole click-through-to-the-right-tab
 feature would be gone. Not a shortcut worth taking.
 
+### `com.apple.ncprefs` says nothing about alerter, and that is fine
+
+Debugging a missing banner, the obvious check is
+`defaults read com.apple.ncprefs apps` to see whether alerter is authorised. It
+will show 100+ other apps and **no entry for `fr.vjeantet.alerter`**, which looks
+like a smoking gun and is not one: alerter is a bare signed binary rather than a
+`.app` bundle, so it never appears there even while it is authorised and posting
+normally. Confirmed by delivering successfully with zero entries present.
+
+The Notification Center database that would answer the question,
+`~/Library/Group Containers/group.com.apple.usernoted/db2/db`, is TCC-protected
+and unreadable without Full Disk Access, so that route is closed too.
+
+The check that actually works is behavioural: fire one notification through each
+delivery path with distinguishable text and see which reaches the screen.
+
 ## Audio
 
 ### Don't use `afplay` in a hook

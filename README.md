@@ -29,7 +29,7 @@ Out of the box Claude Code makes no sound and posts nothing when a turn finishes
 - `jq` — payload parsing. Preinstalled on recent macOS; otherwise `brew install jq`
 - `python3` — detaches the click listener. Ships with Xcode Command Line Tools
 - [`alerter`](https://github.com/vjeantet/alerter) — installed for you, see below
-- Click-to-tab needs [Ghostty](https://ghostty.org). Other terminals get app-level activation
+- Any terminal. The installer detects yours and configures clicks for it. Tab-level focus needs [Ghostty](https://ghostty.org); others get app-level activation
 
 ## Install
 
@@ -70,8 +70,8 @@ Give the installer the **host** path of the directory the container mounts as
 `~/.claude`:
 
 ```sh
-./install.sh --container ~/.ncd-devcontainer/claude
-./install.sh --watch     ~/.ncd-devcontainer/claude ~/other-fork/claude
+./install.sh --container ~/.myproject-devcontainer/claude
+./install.sh --watch     ~/.myproject-devcontainer/claude ~/.other-project/claude
 ```
 
 `--container` prints a `hooks` block to paste into that directory's
@@ -132,8 +132,9 @@ Click-to-tab focuses the Ghostty tab holding the SSH session, via the session
 name in the title. The working-directory fallback can't work here — the remote
 `cwd` matches no local tab — so `/rename` is worth using.
 
-Re-running `--watch` rewrites the launchd agent, so pass your container
-directories again if you have any; otherwise the new agent only listens for SSH.
+Re-running `--watch` with no arguments keeps whatever container directories are
+already registered, so adding SSH to an existing container setup won't
+unregister anything. Run `--uninstall` first if you actually want to drop them.
 
 ## Configuration
 

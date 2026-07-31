@@ -16,8 +16,13 @@ SOUND_NOTIFICATION="Funk"   # needs your attention
 
 # --- terminal ---------------------------------------------------------------
 
-# Which app a click focuses. Tab-level routing works for Ghostty; anything else
-# gets app-level activation.
+# Which app a click focuses. The installer detects your terminal and writes it
+# here, so this value is a starting point rather than a recommendation. Change
+# it if you moved terminals since installing, or if detection guessed wrong.
+#
+# Tab-level routing works for Ghostty, which exposes an AppleScript dictionary.
+# Anything else gets app-level activation, which still brings the right app
+# forward but leaves you to find the tab.
 TERM_APP="Ghostty"
 
 # Seconds to keep listening for a click before giving up. The banner itself

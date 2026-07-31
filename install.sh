@@ -34,6 +34,33 @@ red()  { printf '\033[31m%s\033[0m\n' "$1"; }
 grn()  { printf '\033[32m%s\033[0m\n' "$1"; }
 ylw()  { printf '\033[33m%s\033[0m\n' "$1"; }
 
+# Which app a click should focus. Shipping a fixed default means everyone whose
+# terminal isn't that one gets a click that activates an app they don't use, or
+# nothing at all. The installer runs in the user's own terminal, so this is the
+# one place the answer is reliably available.
+#
+# TERM_PROGRAM covers most; the ones that don't set it are recognisable by TERM.
+# Empty means "no idea", which the caller reports rather than guessing.
+detect_term_app() {
+  app=""
+  case "${TERM_PROGRAM:-}" in
+    ghostty)        app="Ghostty" ;;
+    iTerm.app)      app="iTerm" ;;
+    Apple_Terminal) app="Terminal" ;;
+    WezTerm)        app="WezTerm" ;;
+    WarpTerminal)   app="Warp" ;;
+    Hyper)          app="Hyper" ;;
+    vscode)         app="Visual Studio Code" ;;
+  esac
+  if [ -z "$app" ]; then
+    case "${TERM:-}" in
+      xterm-kitty) app="kitty" ;;
+      alacritty)   app="Alacritty" ;;
+    esac
+  fi
+  printf '%s' "$app"
+}
+
 if [ "$1" = "--uninstall" ]; then
   if [ -f "$AGENT_PLIST" ]; then
     launchctl bootout "gui/$(id -u)/$AGENT_LABEL" 2>/dev/null || true
@@ -64,7 +91,7 @@ fi
 # the credential dir the container already mounts is the whole channel.
 #
 # Takes the HOST path of that directory, e.g.
-#   ./install.sh --container ~/.ncd-devcontainer/claude
+#   ./install.sh --container ~/.myproject-devcontainer/claude
 
 if [ "$1" = "--container" ]; then
   dir="$2"
@@ -220,6 +247,25 @@ fi
 if [ "$1" = "--watch" ]; then
   shift
   # Container dirs are optional: with none, this is an SSH-only listener.
+  #
+  # But this rewrites the plist wholesale, so passing none by accident used to
+  # silently unregister every container — the spools kept filling and nothing
+  # read them, with no error anywhere. Observed in practice, nine hours before
+  # anyone noticed. Reuse whatever is already registered instead, and say so.
+  if [ $# -eq 0 ] && [ -f "$AGENT_PLIST" ]; then
+    registered=$(grep -o "<string>[^<]*/$SPOOL_NAME</string>" "$AGENT_PLIST" \
+                 | sed -e 's|<string>||' -e 's|</string>||')
+    while IFS= read -r spool; do
+      [ -n "$spool" ] && set -- "$@" "$(dirname "$spool")"
+    done <<REGISTERED
+$registered
+REGISTERED
+    if [ $# -gt 0 ]; then
+      ylw "Keeping the container directories already registered:"
+      for dir in "$@"; do echo "  $dir"; done
+      ylw "Run --uninstall first if you meant to drop them."
+    fi
+  fi
 
   mkdir -p "$HOOK_DIR" "$LOG_DIR" "$HOME/Library/LaunchAgents"
   cp "$SRC_DIR/notify-watch.py" "$HOOK_DIR/notify-watch.py"
@@ -360,7 +406,17 @@ if [ -f "$HOOK_DIR/notify.conf" ]; then
   ylw "(compare against notify.conf.example for any new options)"
 else
   cp "$SRC_DIR/notify.conf.example" "$HOOK_DIR/notify.conf"
-  grn "Created config at $HOOK_DIR/notify.conf — edit to change sounds and glyphs"
+  term_app=$(detect_term_app)
+  if [ -n "$term_app" ]; then
+    sed -i '' "s/^TERM_APP=\"Ghostty\"/TERM_APP=\"$term_app\"/" "$HOOK_DIR/notify.conf"
+    grn "Created config at $HOOK_DIR/notify.conf (clicks focus $term_app)"
+    [ "$term_app" = "Ghostty" ] \
+      || ylw "Tab-level focus is Ghostty-only; $term_app gets app-level activation."
+  else
+    grn "Created config at $HOOK_DIR/notify.conf"
+    ylw "Could not identify your terminal — set TERM_APP in that file, or clicks"
+    ylw "will try to focus Ghostty."
+  fi
 fi
 
 # --- settings snippet -------------------------------------------------------
