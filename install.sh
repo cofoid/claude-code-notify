@@ -161,7 +161,13 @@ fi
 
 if [ "$1" = "--remote" ]; then
   host="$2"
-  [ -n "$host" ] || { red "Usage: install.sh --remote <ssh host or alias>"; exit 1; }
+  [ -n "$host" ] || { red "Usage: install.sh --remote <ssh host or alias> [--write-config]"; exit 1; }
+  # Opt-in, because the default of printing what to paste is a deliberate
+  # guarantee rather than laziness: settings.json holds hand-tuned permissions,
+  # and ~/.ssh/config is not a file to rewrite behind someone's back. Asking for
+  # it explicitly is the difference between a convenience and a surprise.
+  write_config=""
+  [ "$3" = "--write-config" ] && write_config="1"
 
   # Ask with a sentinel rather than trusting bare stdout. A host whose profile
   # prints an MOTD or banner on non-interactive login would otherwise fold that
@@ -239,6 +245,53 @@ Make sure the listener is running on this Mac:
 ------------------------------------------------------------------------
 
 EOF
+
+  if [ -n "$write_config" ]; then
+    # --- ~/.ssh/config ---
+    #
+    # Only ever append a Host block that does not exist yet. If the host is
+    # already defined, the safe merge is not obvious: RemoteForward accumulates
+    # across matching blocks but single-value keywords take the FIRST match, so
+    # a second block can half-apply and leave a forward that never binds.
+    mkdir -p "$HOME/.ssh"
+    [ -f "$HOME/.ssh/config" ] || { : > "$HOME/.ssh/config"; chmod 600 "$HOME/.ssh/config"; }
+    if grep -qE "^[[:space:]]*Host[[:space:]]+.*(^|[[:space:]])$host([[:space:]]|$)" \
+         "$HOME/.ssh/config" 2>/dev/null; then
+      ylw "~/.ssh/config already defines Host $host — left untouched."
+      ylw "Add the two indented lines above to that block by hand."
+    else
+      cp "$HOME/.ssh/config" "$HOME/.ssh/config.ccn-bak"
+      printf '\nHost %s\n    RemoteForward %s/%s/sock %s/sock\n    StreamLocalBindUnlink yes\n' \
+        "$host" "$remote_home" "$SOCK_DIR_REL" "$SOCK_DIR" >> "$HOME/.ssh/config"
+      grn "Appended Host $host to ~/.ssh/config (backup: ~/.ssh/config.ccn-bak)"
+    fi
+
+    # --- the remote's settings.json ---
+    #
+    # jq rather than a blind append, and only when the hook is not already
+    # there, so re-running does not stack duplicate entries. Backed up first,
+    # and written via a temp file so a failure cannot truncate the original.
+    if ssh "$host" 'sh -s' <<'REMOTE_SETTINGS'
+set -e
+cd "$HOME/.claude"
+[ -f settings.json ] || printf '{}\n' > settings.json
+cp settings.json settings.json.ccn-bak
+jq --arg cmd '$HOME/.claude/hooks/notify.sh' '
+  def ensure($event):
+    .hooks[$event] = ((.hooks[$event] // [])
+      | if any(.[]; (.hooks // [])[]?.command == $cmd) then .
+        else . + [{hooks: [{type: "command", command: $cmd}]}] end);
+  ensure("Stop") | ensure("Notification")
+' settings.json > settings.json.ccn-new
+mv settings.json.ccn-new settings.json
+REMOTE_SETTINGS
+    then
+      grn "Wired the hooks into $host:~/.claude/settings.json (backup alongside it)"
+      ylw "Reconnect for the tunnel to be established — a live session won't pick it up."
+    else
+      red "Could not update $host:~/.claude/settings.json — add the block above by hand."
+    fi
+  fi
   exit 0
 fi
 
