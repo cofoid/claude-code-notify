@@ -16,9 +16,14 @@ SOUND_NOTIFICATION="Funk"   # needs your attention
 
 # --- terminal ---------------------------------------------------------------
 
-# Which app a click focuses. The installer detects your terminal and writes it
-# here, so this value is a starting point rather than a recommendation. Change
-# it if you moved terminals since installing, or if detection guessed wrong.
+# Which app a click focuses, when it can't be detected live (see below). The
+# installer detects your terminal and writes it here as a fallback, so this
+# value only matters if you set CLAUDE_NOTIFY_TERM_APP or run somewhere
+# TERM_PROGRAM isn't set.
+#
+# alert.sh re-detects the terminal from each session's own environment before
+# falling back to this, since one static value can't be right for every
+# terminal app Claude Code happens to be running in on a given session.
 #
 # Tab-level routing works for Ghostty, which exposes an AppleScript dictionary.
 # Anything else gets app-level activation, which still brings the right app

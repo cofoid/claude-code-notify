@@ -34,32 +34,13 @@ red()  { printf '\033[31m%s\033[0m\n' "$1"; }
 grn()  { printf '\033[32m%s\033[0m\n' "$1"; }
 ylw()  { printf '\033[33m%s\033[0m\n' "$1"; }
 
-# Which app a click should focus. Shipping a fixed default means everyone whose
-# terminal isn't that one gets a click that activates an app they don't use, or
-# nothing at all. The installer runs in the user's own terminal, so this is the
-# one place the answer is reliably available.
-#
-# TERM_PROGRAM covers most; the ones that don't set it are recognisable by TERM.
-# Empty means "no idea", which the caller reports rather than guessing.
-detect_term_app() {
-  app=""
-  case "${TERM_PROGRAM:-}" in
-    ghostty)        app="Ghostty" ;;
-    iTerm.app)      app="iTerm" ;;
-    Apple_Terminal) app="Terminal" ;;
-    WezTerm)        app="WezTerm" ;;
-    WarpTerminal)   app="Warp" ;;
-    Hyper)          app="Hyper" ;;
-    vscode)         app="Visual Studio Code" ;;
-  esac
-  if [ -z "$app" ]; then
-    case "${TERM:-}" in
-      xterm-kitty) app="kitty" ;;
-      alacritty)   app="Alacritty" ;;
-    esac
-  fi
-  printf '%s' "$app"
-}
+# Which app a click should focus, by default. Shipping a fixed default means
+# everyone whose terminal isn't that one gets a click that activates an app
+# they don't use, or nothing at all. Shared with alert.sh, which re-runs this
+# at click time rather than trusting the static value installed here — see
+# detect-term-app.sh.
+# shellcheck source=detect-term-app.sh
+. "$SRC_DIR/detect-term-app.sh"
 
 if [ "$1" = "--uninstall" ]; then
   if [ -f "$AGENT_PLIST" ]; then
@@ -67,7 +48,7 @@ if [ "$1" = "--uninstall" ]; then
     rm -f "$AGENT_PLIST"
     grn "Removed the watcher agent"
   fi
-  rm -f "$HOOK_DIR/notify.sh" "$HOOK_DIR/alert.sh" \
+  rm -f "$HOOK_DIR/notify.sh" "$HOOK_DIR/alert.sh" "$HOOK_DIR/detect-term-app.sh" \
         "$HOOK_DIR/focus-ghostty.applescript" "$HOOK_DIR/describe-request.py" \
         "$HOOK_DIR/notify-watch.py"
   grn "Removed hook files from $HOOK_DIR"
@@ -455,6 +436,7 @@ fi
 mkdir -p "$HOOK_DIR"
 cp "$SRC_DIR/notify.sh" "$HOOK_DIR/notify.sh"
 cp "$SRC_DIR/alert.sh" "$HOOK_DIR/alert.sh"
+cp "$SRC_DIR/detect-term-app.sh" "$HOOK_DIR/detect-term-app.sh"
 cp "$SRC_DIR/focus-ghostty.applescript" "$HOOK_DIR/focus-ghostty.applescript"
 cp "$SRC_DIR/describe-request.py" "$HOOK_DIR/describe-request.py"
 chmod +x "$HOOK_DIR/notify.sh" "$HOOK_DIR/alert.sh" "$HOOK_DIR/describe-request.py"

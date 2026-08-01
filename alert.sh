@@ -30,7 +30,19 @@ CONF="${CLAUDE_NOTIFY_CONF:-$HOME/.claude/hooks/notify.conf}"
 # shellcheck source=/dev/null
 [ -f "$CONF" ] && . "$CONF"
 
-# Environment overrides win over the config file.
+# notify.conf's TERM_APP is one static value baked in at install time, but
+# Claude Code can run in a different terminal app each session — the env here
+# is that session's own, inherited from the hook invocation, so re-detect it
+# live rather than trust the config's guess of what terminal you were in once.
+DETECT="$(dirname "$0")/detect-term-app.sh"
+if [ -f "$DETECT" ]; then
+  # shellcheck source=detect-term-app.sh
+  . "$DETECT"
+  live_term_app="$(detect_term_app)"
+  [ -n "$live_term_app" ] && TERM_APP="$live_term_app"
+fi
+
+# Environment overrides win over everything, including live detection.
 TERM_APP="${CLAUDE_NOTIFY_TERM_APP:-$TERM_APP}"
 CLICK_TIMEOUT="${CLAUDE_NOTIFY_TIMEOUT:-$CLICK_TIMEOUT}"
 IGNORE_DND="${CLAUDE_NOTIFY_IGNORE_DND:-$IGNORE_DND}"
