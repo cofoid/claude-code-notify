@@ -36,10 +36,14 @@ on run argv
 							set n to name of s
 						end try
 						if n is not "" and n contains sessionName then
-							-- Outermost first, so the window is frontmost before selecting
-							-- a tab inside it means anything on screen. Selects are inline
-							-- rather than in a handler: loop references passed to one do
-							-- not resolve, and the failure is invisible inside a try.
+							-- All three selects are load-bearing, outermost first.
+							-- `select s` alone reaches the session inside its own tab but
+							-- leaves whatever window was already frontmost in front:
+							-- measured with a target in a background window, `current
+							-- window` was unchanged afterwards. So the window has to be
+							-- raised before selecting a tab inside it means anything.
+							-- Inline rather than in a handler: loop references passed to
+							-- one do not resolve, and the failure is invisible inside a try.
 							select w
 							select t
 							select s
@@ -54,9 +58,12 @@ on run argv
 		-- Pass 2: working-directory match, unique hits only — several tabs
 		-- commonly sit in the same repo.
 		--
-		-- Records indices rather than the loop's own references: a saved `w`
-		-- resolves as "item 3 of every window", which raises -1719 once the
-		-- loop that produced it has ended. Absolute addressing survives.
+		-- Records indices rather than the loop's own references. A saved window
+		-- or tab reference resolves as "item 3 of every window" and raises
+		-- -1719 once the loop that produced it has ended; absolute addressing
+		-- survives. (A saved *session* reference does survive, which invites
+		-- collecting only those — but selecting a session without first raising
+		-- its window leaves the wrong window in front, per the note above.)
 		if targetCwd is not "" then
 			set hitCount to 0
 			set hitW to 0

@@ -35,14 +35,15 @@ detect_term_app() {
   # tmux and screen overwrite TERM_PROGRAM (with "tmux") and TERM (with
   # tmux-256color/screen-*), hiding the terminal they run inside — which is why
   # an iTerm2 session under tmux fell through to the caller's baked-in default.
-  # iTerm2 and WezTerm also export LC_TERMINAL, and LC_* is on tmux's default
+  # iTerm2 also exports LC_TERMINAL, and LC_* is on tmux's default
   # update-environment list, so it survives into the multiplexed session.
   # Checked after TERM_PROGRAM/TERM so an unmultiplexed session still wins on
-  # its own direct signal.
+  # its own direct signal. Only iTerm2 is listed: it is the only terminal here
+  # confirmed to set LC_TERMINAL, and guessing at others would be a claim the
+  # code cannot back up.
   if [ -z "$app" ]; then
     case "${LC_TERMINAL:-}" in
-      iTerm2)  app="iTerm" ;;
-      WezTerm) app="WezTerm" ;;
+      iTerm2) app="iTerm" ;;
     esac
   fi
   if [ -z "$app" ] && [ -z "${TERM:-}" ] && [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "claude-vscode" ]; then
