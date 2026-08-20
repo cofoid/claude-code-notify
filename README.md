@@ -29,7 +29,7 @@ Out of the box Claude Code makes no sound and posts nothing when a turn finishes
 - `jq` — payload parsing. Preinstalled on recent macOS; otherwise `brew install jq`
 - `python3` — detaches the click listener. Ships with Xcode Command Line Tools
 - [`alerter`](https://github.com/vjeantet/alerter) — installed for you, see below
-- Any terminal. The installer detects yours and configures clicks for it. Tab-level focus needs [Ghostty](https://ghostty.org); others get app-level activation
+- Any terminal. The installer detects yours and configures clicks for it. Tab-level focus needs [Ghostty](https://ghostty.org) or [iTerm2](https://iterm2.com) (including under `tmux -CC`); others get app-level activation
 
 ## Install
 
@@ -93,6 +93,13 @@ fallback can't help here — the payload's `cwd` is a `/workspaces/...` path no
 host tab will ever match — but it fails closed, falling back to activating the
 app rather than focusing an arbitrary tab.
 
+Which terminal it focuses is the one thing you have to set by hand here. The
+watcher runs from launchd with no session environment, so there is nothing to
+detect live and `TERM_APP` in `notify.conf` decides it — the installer's guess
+was made from whatever terminal you ran it in. Set it to the terminal your
+containers are exec'd from. macOS will ask once whether `notify-watch.py` may
+control that app; the first click after a change is the one that prompts.
+
 ## SSH sessions
 
 A remote host has no shared filesystem, so the container's spool trick doesn't
@@ -128,8 +135,8 @@ guarantee its mode.
 If the tunnel is down, the notification is appended to the remote's spool and a
 line goes to stderr rather than vanishing.
 
-Click-to-tab focuses the Ghostty tab holding the SSH session, via the session
-name in the title. The working-directory fallback can't work here — the remote
+Click-to-tab focuses the Ghostty or iTerm2 tab holding the SSH session, via the
+session name in the title. The working-directory fallback can't work here — the remote
 `cwd` matches no local tab — so `/rename` is worth using.
 
 Re-running `--watch` with no arguments keeps whatever container directories are
@@ -178,7 +185,9 @@ Two things you'd expect in the payload aren't there:
 - **Session name** (`/rename`) lives in `~/.claude/sessions/<pid>.json` as `.name`, keyed by `sessionId`. Files are per-pid, so match on `sessionId` rather than guessing a filename.
 - **Session colour** (`/color`) lives in the transcript as `{"type":"agent-color","agentColor":"..."}` entries, re-emitted each turn — the last wins. Read a bounded tail; transcripts reach tens of MB.
 
-Click-to-tab uses Ghostty's AppleScript dictionary (`focus <terminal>`), matching the surface whose title contains the session name — Claude Code writes it into the terminal title. Falls back to working directory, but only on a unique match, since several tabs commonly share a repo.
+Click-to-tab uses the terminal's AppleScript dictionary — Ghostty's `focus <terminal>`, iTerm2's `select` on window/tab/session — matching the surface whose title contains the session name, which Claude Code writes into the terminal title. Falls back to working directory, but only on a unique match, since several tabs commonly share a repo.
+
+iTerm2 is matched on title and never on tty, even though it exposes one. Under `tmux -CC` (control mode) each tmux window is a native iTerm tab whose session reports `tty = missing value`, because the pty belongs to tmux. The title escape sequence crosses both `tmux -CC` and `docker exec` unchanged, so it is the one identifier available in every mode. iTerm2's cwd fallback reads the `session.path` variable rather than a `working directory` property, which iTerm has none of.
 
 ## Known limitations
 
@@ -186,7 +195,7 @@ Click-to-tab uses Ghostty's AppleScript dictionary (`focus <terminal>`), matchin
 
 **No banner colour.** macOS exposes no banner-tint API. The colour square is the closest proxy.
 
-**Clicking activates the app, then the tab.** No terminal offers direct per-tab activation; the AppleScript hop is what gets you the rest of the way, and only Ghostty ships a dictionary that allows it.
+**Clicking activates the app, then the tab.** No terminal offers direct per-tab activation; the AppleScript hop is what gets you the rest of the way, and only Ghostty and iTerm2 ship dictionaries that allow it.
 
 **Truncation is character-safe but not grapheme-safe.** A 140-character clip can split an emoji ZWJ sequence. Cosmetic, rare.
 
