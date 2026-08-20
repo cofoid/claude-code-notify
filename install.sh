@@ -49,7 +49,8 @@ if [ "$1" = "--uninstall" ]; then
     grn "Removed the watcher agent"
   fi
   rm -f "$HOOK_DIR/notify.sh" "$HOOK_DIR/alert.sh" "$HOOK_DIR/detect-term-app.sh" \
-        "$HOOK_DIR/focus-ghostty.applescript" "$HOOK_DIR/describe-request.py" \
+        "$HOOK_DIR/focus-ghostty.applescript" "$HOOK_DIR/focus-iterm.applescript" \
+        "$HOOK_DIR/describe-request.py" \
         "$HOOK_DIR/notify-watch.py"
   grn "Removed hook files from $HOOK_DIR"
   # Only the socket, not the directory: ssh recreates the socket on the next
@@ -438,6 +439,7 @@ cp "$SRC_DIR/notify.sh" "$HOOK_DIR/notify.sh"
 cp "$SRC_DIR/alert.sh" "$HOOK_DIR/alert.sh"
 cp "$SRC_DIR/detect-term-app.sh" "$HOOK_DIR/detect-term-app.sh"
 cp "$SRC_DIR/focus-ghostty.applescript" "$HOOK_DIR/focus-ghostty.applescript"
+cp "$SRC_DIR/focus-iterm.applescript" "$HOOK_DIR/focus-iterm.applescript"
 cp "$SRC_DIR/describe-request.py" "$HOOK_DIR/describe-request.py"
 chmod +x "$HOOK_DIR/notify.sh" "$HOOK_DIR/alert.sh" "$HOOK_DIR/describe-request.py"
 grn "Installed hook files to $HOOK_DIR"

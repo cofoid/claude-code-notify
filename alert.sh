@@ -47,7 +47,14 @@ TERM_APP="${CLAUDE_NOTIFY_TERM_APP:-$TERM_APP}"
 CLICK_TIMEOUT="${CLAUDE_NOTIFY_TIMEOUT:-$CLICK_TIMEOUT}"
 IGNORE_DND="${CLAUDE_NOTIFY_IGNORE_DND:-$IGNORE_DND}"
 ALERTER="${CLAUDE_NOTIFY_ALERTER:-$HOME/.local/bin/alerter}"
-SCPT="$(dirname "$0")/focus-ghostty.applescript"
+# Terminals with an AppleScript dictionary rich enough to reach an individual
+# tab get a focus script; the rest fall back to app-level activation. Each
+# script takes "<session name>" "<cwd>" and prints "focused:..." on success.
+case "$TERM_APP" in
+  Ghostty) SCPT="$(dirname "$0")/focus-ghostty.applescript" ;;
+  iTerm)   SCPT="$(dirname "$0")/focus-iterm.applescript" ;;
+  *)       SCPT="" ;;
+esac
 
 # alerter (UNUserNotificationCenter, notarized) is the preferred path: the only
 # one that delivers on current macOS AND reports clicks. It BLOCKS while waiting
@@ -81,10 +88,11 @@ out = subprocess.run(cmd, capture_output=True, text=True).stdout
 # @CONTENTCLICKED = body, @ACTIONCLICKED = "Show"; @TIMEOUT/@CLOSED are not clicks.
 if "CLICKED" not in out:
     sys.exit(0)
-# Ghostty exposes an AppleScript dictionary, so the click can land on the exact
-# tab. Any other terminal falls back to app-level activation.
+# Ghostty and iTerm2 expose an AppleScript dictionary, so the click can land on
+# the exact tab. Any other terminal gets an empty SCPT and falls back to
+# app-level activation.
 focused = False
-if e["APP"] == "Ghostty" and os.path.exists(e["SCPT"]):
+if e["SCPT"] and os.path.exists(e["SCPT"]):
     r = subprocess.run(["osascript", e["SCPT"], e.get("NAME", ""), e.get("CWD", "")],
                        capture_output=True, text=True)
     focused = "focused:" in r.stdout
