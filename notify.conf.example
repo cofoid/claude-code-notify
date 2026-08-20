@@ -25,9 +25,15 @@ SOUND_NOTIFICATION="Funk"   # needs your attention
 # falling back to this, since one static value can't be right for every
 # terminal app Claude Code happens to be running in on a given session.
 #
-# Tab-level routing works for Ghostty, which exposes an AppleScript dictionary.
-# Anything else gets app-level activation, which still brings the right app
-# forward but leaves you to find the tab.
+# Tab-level routing works for Ghostty and iTerm2, which expose an AppleScript
+# dictionary. Anything else gets app-level activation, which still brings the
+# right app forward but leaves you to find the tab.
+#
+# The one case where this value really carries weight is the devcontainer path:
+# notify-watch.py runs from launchd with no session environment, so there is
+# nothing to detect and every spooled container notification clicks through to
+# whatever is set here. Point it at the terminal your containers are exec'd
+# from — their titles reach it, so tab-level routing works for them too.
 TERM_APP="Ghostty"
 
 # Seconds before the notification AUTO-CLOSES. This is alerter's --timeout, and

@@ -93,6 +93,13 @@ fallback can't help here — the payload's `cwd` is a `/workspaces/...` path no
 host tab will ever match — but it fails closed, falling back to activating the
 app rather than focusing an arbitrary tab.
 
+Which terminal it focuses is the one thing you have to set by hand here. The
+watcher runs from launchd with no session environment, so there is nothing to
+detect live and `TERM_APP` in `notify.conf` decides it — the installer's guess
+was made from whatever terminal you ran it in. Set it to the terminal your
+containers are exec'd from. macOS will ask once whether `notify-watch.py` may
+control that app; the first click after a change is the one that prompts.
+
 ## SSH sessions
 
 A remote host has no shared filesystem, so the container's spool trick doesn't
